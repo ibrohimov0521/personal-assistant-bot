@@ -1,0 +1,16 @@
+[Unit]
+Description=Assistant Telegram Bot and Mini App
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/assistant-bot
+ExecStart=/opt/assistant-bot/server_start.sh
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

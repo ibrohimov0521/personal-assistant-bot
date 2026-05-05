@@ -1,0 +1,16 @@
+[Unit]
+Description=Assistant Telegram Bank Forwarder
+After=network-online.target assistant-bot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/assistant-bot
+ExecStart=/opt/assistant-bot/.venv/bin/python /opt/assistant-bot/forwarder.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

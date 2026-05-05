@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="uz">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Assistant</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+    <link rel="stylesheet" href="./styles.css?v=7" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="hero">
+        <div class="hero-glow"></div>
+        <div class="hero-row">
+          <div>
+            <p class="eyebrow">Assistant</p>
+            <h1>Bugungi nazorat</h1>
+            <p class="subtitle">Moliya, eslatma va namoz nazorati bir joyda.</p>
+          </div>
+          <button class="icon-button" id="refreshButton" type="button" aria-label="Yangilash">
+            <i data-lucide="refresh-cw"></i>
+          </button>
+        </div>
+        <section class="balance-hero">
+          <span>Jami balans</span>
+          <strong id="heroBalance">...</strong>
+          <small id="heroMeta">Yangilanmoqda</small>
+        </section>
+      </header>
+
+      <section class="auth-notice" id="authNotice" hidden>
+        <div class="item-icon"><i data-lucide="shield-alert"></i></div>
+        <div>
+          <strong>Telegram orqali oching</strong>
+          <span>Real ma'lumotlar faqat bot ichidagi Mini App tugmasida ko'rinadi.</span>
+        </div>
+      </section>
+
+      <section class="view active" id="view-home" data-view="home">
+        <section class="section-head">
+          <h2>Tezkor holat</h2>
+          <span id="generatedAt">...</span>
+        </section>
+
+        <div class="quick-grid">
+          <button class="quick-card green-card" data-open-view="finance" data-transaction-filter="income" type="button">
+            <span>Kirim</span>
+            <strong id="homeIncome">...</strong>
+            <small>Ro'yxatni ko'rish</small>
+          </button>
+          <button class="quick-card red-card" data-open-view="finance" data-transaction-filter="expense" type="button">
+            <span>Chiqim</span>
+            <strong id="homeExpense">...</strong>
+            <small>Ro'yxatni ko'rish</small>
+          </button>
+        </div>
+
+        <section class="soft-card next-card">
+          <div class="card-title">
+            <i data-lucide="sun"></i>
+            <span>Keyingi namoz</span>
+          </div>
+          <strong id="nextPrayerName">...</strong>
+          <p id="nextPrayerMeta">...</p>
+        </section>
+
+        <section class="section-head">
+          <h2>Yaqin eslatmalar</h2>
+          <button class="link-button" data-open-view="extras" type="button">
+            <span id="reminderCount">0 ta</span>
+          </button>
+        </section>
+        <div id="reminderList" class="stack-list"></div>
+
+        <section class="section-head">
+          <h2>Oxirgi operatsiyalar</h2>
+          <button class="link-button" data-open-view="finance" data-transaction-filter="all" type="button">Barchasi</button>
+        </section>
+        <div id="recentTransactions" class="stack-list"></div>
+      </section>
+
+      <section class="view" id="view-finance" data-view="finance">
+        <section class="panel report-panel">
+          <div class="section-head inside">
+            <h2>Moliya</h2>
+            <span id="reportPeriod">May 2026</span>
+          </div>
+
+          <div class="month-row">
+            <strong id="monthLabel">May 2026</strong>
+          </div>
+
+          <div class="segmented three period-tabs" role="tablist" aria-label="Hisobot davri">
+            <button class="segment active" data-period-filter="today" type="button">Bugun</button>
+            <button class="segment" data-period-filter="week" type="button">Hafta</button>
+            <button class="segment" data-period-filter="month" type="button">Oy</button>
+          </div>
+
+          <div class="summary-grid">
+            <button class="summary-card income" data-transaction-filter="income" type="button">
+              <span>Kirim</span>
+              <strong id="reportIncome">...</strong>
+            </button>
+            <button class="summary-card expense" data-transaction-filter="expense" type="button">
+              <span>Chiqim</span>
+              <strong id="reportExpense">...</strong>
+            </button>
+            <article class="summary-card net">
+              <span>Farq</span>
+              <strong id="reportNet">...</strong>
+            </article>
+          </div>
+
+          <div class="finance-tools">
+            <label class="limit-field">
+              <span>Kunlik limit</span>
+              <input id="dailyLimitInput" inputmode="numeric" placeholder="Masalan: 100000" />
+            </label>
+            <button class="primary-button" id="saveDailyLimitButton" type="button">
+              <i data-lucide="shield-check"></i>
+              <span>Saqlash</span>
+            </button>
+          </div>
+          <p class="helper-text" id="dailyLimitNote">Kunlik limit belgilanmagan.</p>
+
+          <div class="action-row">
+            <button class="ghost-action" id="dailyReportToggleButton" type="button">
+              <i data-lucide="send"></i>
+              <span>Kunlik hisobot</span>
+            </button>
+            <button class="ghost-action" id="exportCsvButton" type="button">
+              <i data-lucide="download"></i>
+              <span>CSV export</span>
+            </button>
+          </div>
+
+          <div class="segmented three" role="tablist" aria-label="Operatsiya turi">
+            <button class="segment active" data-transaction-filter="all" type="button">Barchasi</button>
+            <button class="segment" data-transaction-filter="income" type="button">Kirim</button>
+            <button class="segment" data-transaction-filter="expense" type="button">Chiqim</button>
+          </div>
+        </section>
+
+        <section class="section-head">
+          <h2>Operatsiyalar</h2>
+          <span id="transactionFilterLabel">Barchasi</span>
+        </section>
+        <div id="transactionList" class="stack-list"></div>
+
+        <section class="section-head">
+          <h2>Kategoriyalar</h2>
+          <span>Oylik chiqim</span>
+        </section>
+        <div id="categoryList" class="category-list"></div>
+
+        <section class="panel">
+          <div class="section-head inside">
+            <h2>Jamg'arma</h2>
+            <span>Reja</span>
+          </div>
+          <div class="saving-meter">
+            <div>
+              <span>Oylik farq</span>
+              <strong id="savingNet">...</strong>
+            </div>
+            <div class="meter-ring" id="savingRing">0%</div>
+          </div>
+          <div class="progress-line">
+            <span id="savingProgress"></span>
+          </div>
+          <p class="helper-text" id="savingHint">Kirim va chiqimlar asosida avtomatik hisoblanadi.</p>
+        </section>
+
+        <section class="section-head">
+          <h2>Kartalar</h2>
+          <span id="cardUpdatedLabel">...</span>
+        </section>
+        <div id="balanceList" class="card-grid"></div>
+
+        <section class="section-head">
+          <h2>Moliyaviy signal</h2>
+          <span>Avto tahlil</span>
+        </section>
+        <div id="financeSignals" class="stack-list"></div>
+      </section>
+
+      <section class="view" id="view-extras" data-view="extras">
+        <section class="panel">
+          <div class="section-head inside">
+            <h2>Namoz nazorati</h2>
+            <span id="prayerCityLabel">...</span>
+          </div>
+          <div class="prayer-actions">
+            <label class="select-wrap">
+              <span>Shahar</span>
+              <select id="citySelect"></select>
+            </label>
+            <button class="primary-button" id="togglePrayerButton" type="button">
+              <i data-lucide="bell"></i>
+              <span>...</span>
+            </button>
+          </div>
+          <p class="helper-text" id="prayerSource">...</p>
+          <div class="lead-time-row">
+            <span>Oldindan eslatish</span>
+            <div class="segmented four" id="leadTimeOptions" role="tablist" aria-label="Namoz oldindan eslatish">
+              <button class="segment" data-lead-minutes="0" type="button">0</button>
+              <button class="segment" data-lead-minutes="5" type="button">5</button>
+              <button class="segment" data-lead-minutes="10" type="button">10</button>
+              <button class="segment" data-lead-minutes="15" type="button">15</button>
+            </div>
+          </div>
+          <div id="prayerTimes" class="prayer-grid"></div>
+        </section>
+
+        <section class="section-head">
+          <h2>Aktiv eslatmalar</h2>
+          <span id="activeReminderCount">0 ta</span>
+        </section>
+        <div id="activeReminderList" class="stack-list"></div>
+
+        <section class="section-head">
+          <h2>Yakunlangan eslatmalar</h2>
+          <button class="link-button" id="completedToggleButton" type="button">
+            <span id="completedReminderCount">0 ta</span>
+          </button>
+        </section>
+        <div id="completedReminderList" class="stack-list"></div>
+      </section>
+
+      <section class="view" id="view-profile" data-view="profile">
+        <section class="profile-card">
+          <div class="avatar">F</div>
+          <div>
+            <h2 id="profileName">Foydalanuvchi</h2>
+            <p id="profileStatus">Assistant faol</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="setting-row">
+            <span><i data-lucide="user-round"></i> Username</span>
+            <strong id="profileUsername">...</strong>
+          </div>
+          <div class="setting-row">
+            <span><i data-lucide="hash"></i> Telegram ID</span>
+            <strong id="profileId">...</strong>
+          </div>
+          <div class="setting-row">
+            <span><i data-lucide="phone"></i> Telefon</span>
+            <strong id="profilePhone">...</strong>
+          </div>
+          <div class="setting-row">
+            <span><i data-lucide="languages"></i> Til</span>
+            <strong id="profileLanguage">...</strong>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="setting-row">
+            <span><i data-lucide="radio"></i> Bot holati</span>
+            <strong id="botStatus">Online</strong>
+          </div>
+          <div class="setting-row">
+            <span><i data-lucide="shield-check"></i> Ulanish</span>
+            <strong id="connectionStatus">Himoyalangan</strong>
+          </div>
+          <div class="setting-row">
+            <span><i data-lucide="sun-moon"></i> Ko'rinish</span>
+            <button class="pill-button" id="themeToggleButton" type="button">
+              <span id="themeModeLabel">Tun rejimi</span>
+            </button>
+          </div>
+        </section>
+
+        <section class="panel danger-zone">
+          <div class="section-head inside">
+            <h2>Ma'lumotlarni boshqarish</h2>
+            <span>Xavfsiz tozalash</span>
+          </div>
+          <div class="action-row wrap">
+            <button class="ghost-action danger" data-clear-scope="finance" type="button">
+              <i data-lucide="wallet-x"></i>
+              <span>Moliya</span>
+            </button>
+            <button class="ghost-action danger" data-clear-scope="reminders" type="button">
+              <i data-lucide="calendar-x"></i>
+              <span>Eslatmalar</span>
+            </button>
+            <button class="ghost-action danger" data-clear-scope="all" type="button">
+              <i data-lucide="trash-2"></i>
+              <span>Hammasi</span>
+            </button>
+          </div>
+        </section>
+      </section>
+
+      <div class="modal-backdrop" id="transactionModal" hidden>
+        <form class="modal-card" id="transactionForm">
+          <div class="section-head inside">
+            <h2>Operatsiyani tahrirlash</h2>
+            <button class="icon-button small" id="closeTransactionModal" type="button" aria-label="Yopish">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <input id="transactionIdInput" type="hidden" />
+          <label class="form-field">
+            <span>Turi</span>
+            <select id="transactionTypeInput">
+              <option value="expense">Chiqim</option>
+              <option value="income">Kirim</option>
+            </select>
+          </label>
+          <label class="form-field">
+            <span>Summa</span>
+            <input id="transactionAmountInput" inputmode="numeric" required />
+          </label>
+          <label class="form-field">
+            <span>Kategoriya</span>
+            <input id="transactionCategoryInput" maxlength="60" required />
+          </label>
+          <label class="form-field">
+            <span>Izoh</span>
+            <input id="transactionDescriptionInput" maxlength="120" required />
+          </label>
+          <button class="primary-button wide" type="submit">
+            <i data-lucide="save"></i>
+            <span>Saqlash</span>
+          </button>
+        </form>
+      </div>
+
+      <nav class="bottom-nav" aria-label="Asosiy bo'limlar">
+        <button class="nav-item active" data-view-target="home" type="button">
+          <i data-lucide="home"></i>
+          <span>Asosiy</span>
+        </button>
+        <button class="nav-item" data-view-target="finance" type="button">
+          <i data-lucide="pie-chart"></i>
+          <span>Moliya</span>
+        </button>
+        <button class="nav-item" data-view-target="extras" type="button">
+          <i data-lucide="sparkles"></i>
+          <span>Qo'shimcha</span>
+        </button>
+        <button class="nav-item" data-view-target="profile" type="button">
+          <i data-lucide="circle-user-round"></i>
+          <span>Profil</span>
+        </button>
+      </nav>
+
+      <div class="toast" id="toast" role="status"></div>
+    </main>
+    <script src="./app.js?v=7"></script>
+  </body>
+</html>
