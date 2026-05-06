@@ -9,6 +9,11 @@ from telethon import TelegramClient, events
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
+forwarder_env = Path(os.getenv("FORWARDER_ENV_FILE", "forwarder.local.env")).expanduser()
+if not forwarder_env.is_absolute():
+    forwarder_env = BASE_DIR / forwarder_env
+if forwarder_env.exists():
+    load_dotenv(forwarder_env, override=True)
 
 logging.basicConfig(
     level=logging.INFO,

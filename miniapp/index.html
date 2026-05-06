@@ -6,7 +6,8 @@
     <title>Assistant</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
-    <link rel="stylesheet" href="./styles.css?v=7" />
+    <link rel="stylesheet" href="./theme.css?v=13" />
+    <link rel="stylesheet" href="./styles.css?v=13" />
   </head>
   <body>
     <main class="app-shell">
@@ -125,6 +126,10 @@
           <p class="helper-text" id="dailyLimitNote">Kunlik limit belgilanmagan.</p>
 
           <div class="action-row">
+            <button class="ghost-action" id="openNewTransactionButton" type="button">
+              <i data-lucide="plus-circle"></i>
+              <span>Operatsiya qo'shish</span>
+            </button>
             <button class="ghost-action" id="dailyReportToggleButton" type="button">
               <i data-lucide="send"></i>
               <span>Kunlik hisobot</span>
@@ -153,6 +158,28 @@
           <span>Oylik chiqim</span>
         </section>
         <div id="categoryList" class="category-list"></div>
+
+        <section class="panel">
+          <div class="section-head inside">
+            <h2>Kategoriya limitlari</h2>
+            <span id="categoryLimitSummary">0 ta</span>
+          </div>
+          <div class="admin-add-row">
+            <label class="limit-field">
+              <span>Kategoriya</span>
+              <input id="categoryLimitNameInput" maxlength="60" placeholder="Masalan: Ovqat" />
+            </label>
+            <label class="limit-field">
+              <span>Oylik limit</span>
+              <input id="categoryLimitAmountInput" inputmode="numeric" placeholder="1000000" />
+            </label>
+            <button class="primary-button" id="saveCategoryLimitButton" type="button">
+              <i data-lucide="shield-check"></i>
+              <span>Saqlash</span>
+            </button>
+          </div>
+          <div id="categoryLimitList" class="stack-list compact"></div>
+        </section>
 
         <section class="panel">
           <div class="section-head inside">
@@ -296,10 +323,42 @@
         </section>
       </section>
 
+      <section class="view" id="view-admin" data-view="admin" data-admin-only hidden>
+        <section class="panel admin-panel">
+          <div class="section-head inside">
+            <h2>Admin</h2>
+            <span id="adminSummary">...</span>
+          </div>
+          <div class="admin-add-row admin-user-add-row">
+            <label class="limit-field">
+              <span>User ID qo'shish</span>
+              <input id="adminUserInput" inputmode="numeric" placeholder="Masalan: 123456789" />
+            </label>
+            <button class="primary-button" id="adminAllowButton" type="button">
+              <i data-lucide="user-plus"></i>
+              <span>Qo'shish</span>
+            </button>
+          </div>
+          <p class="helper-text">User botga /id yuborib ID sini oladi. Bloklangan user bot va Mini App'dan foydalana olmaydi.</p>
+        </section>
+
+        <section class="section-head">
+          <h2>Foydalanuvchilar</h2>
+          <button class="link-button" id="adminRefreshButton" type="button">Yangilash</button>
+        </section>
+        <div id="adminUserList" class="stack-list"></div>
+
+        <section class="section-head">
+          <h2>Audit tarixi</h2>
+          <span>So'nggi harakatlar</span>
+        </section>
+        <div id="adminAuditList" class="stack-list"></div>
+      </section>
+
       <div class="modal-backdrop" id="transactionModal" hidden>
         <form class="modal-card" id="transactionForm">
           <div class="section-head inside">
-            <h2>Operatsiyani tahrirlash</h2>
+            <h2 id="transactionModalTitle">Operatsiyani tahrirlash</h2>
             <button class="icon-button small" id="closeTransactionModal" type="button" aria-label="Yopish">
               <i data-lucide="x"></i>
             </button>
@@ -323,6 +382,10 @@
           <label class="form-field">
             <span>Izoh</span>
             <input id="transactionDescriptionInput" maxlength="120" required />
+          </label>
+          <label class="form-field">
+            <span>Karta oxirgi 4 raqami</span>
+            <input id="transactionCardInput" inputmode="numeric" maxlength="4" placeholder="3936" />
           </label>
           <button class="primary-button wide" type="submit">
             <i data-lucide="save"></i>
@@ -348,10 +411,15 @@
           <i data-lucide="circle-user-round"></i>
           <span>Profil</span>
         </button>
+        <button class="nav-item" data-view-target="admin" data-admin-only hidden type="button">
+          <i data-lucide="shield-check"></i>
+          <span>Admin</span>
+        </button>
       </nav>
 
       <div class="toast" id="toast" role="status"></div>
     </main>
-    <script src="./app.js?v=7"></script>
+    <script src="./demo-data.js?v=13"></script>
+    <script src="./app.js?v=13"></script>
   </body>
 </html>

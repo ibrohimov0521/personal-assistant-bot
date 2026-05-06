@@ -47,7 +47,7 @@ Faqat ayrim odamlarga ruxsat bermoqchi bo'lsangiz:
 ALLOWED_USER_IDS=6388458077,123456789
 ```
 
-Ruxsat berilmagan odam botga yozsa, bot unga o'z Telegram ID sini ko'rsatadi. U ID ni adminga yuboradi, admin esa `.env` ichidagi `ALLOWED_USER_IDS` qatoriga qo'shadi.
+Ruxsat berilmagan odam botga yozsa, bot unga o'z Telegram ID sini ko'rsatadi. U ID ni adminga yuboradi, admin esa Mini App ichidagi `Admin` bo'limidan yoki `/allow ID` buyrug'i bilan qo'shadi.
 
 Ruxsat berilgan odam o'z ID sini ko'rmoqchi bo'lsa:
 
@@ -156,6 +156,14 @@ cd /d "C:\Users\Javohir\Documents\Codex\2026-04-27\personal-assistant-bot"
 local-tools\run_forwarder.cmd
 ```
 
+Yangi foydalanuvchi uchun eng oson yo'l:
+
+```cmd
+local-tools\setup_forwarder.cmd
+```
+
+Bu script `forwarder.local.env` faylini yaratadi. U GitHubga qo'shilmaydi va har bir user o'z kompyuterida alohida login qiladi.
+
 Birinchi marta telefon raqam va Telegram login kodi so'raydi. Kod va session faylni hech kimga bermang.
 Bu joyda bot token yozmang. Forwarder oddiy Telegram akkauntingiz bilan kirishi kerak, chunki bot akkaunt boshqa botlardan kelgan xabarlarni o'qiy olmaydi.
 
@@ -166,3 +174,98 @@ powershell -ExecutionPolicy Bypass -File .\local-tools\stop_forwarder.ps1
 ```
 
 Hozirgi tavsiya: kundalik foydalanishda alohida `run_bot.cmd` va `run_forwarder.cmd` o'rniga `local-tools\start_all_hidden.cmd`, `local-tools\status_all.cmd`, `local-tools\stop_all.cmd` uchligini ishlating.
+
+## Admin va tezkor buyruqlar
+
+Adminlar faqat `.env` ichida `ADMIN_USER_IDS` orqali beriladi. Xavfsizlik uchun bu qator bo'sh qolsa hech kim admin bo'lmaydi.
+
+Mini App ichida `Admin` bo'limi faqat adminlarga ko'rinadi. Bu bo'limda user profillari, Telegram ID, username, moliya statistikasi ko'rinadi. User botga yozganidan yoki Mini App'ni ochganidan keyin profili yangilanadi.
+
+Admin Mini App orqali:
+
+- yangi user ID qo'shishi;
+- user oldin qo'shilgan yoki blokda bo'lsa, aniq ogohlantirish olishi;
+- userni bloklashi;
+- bloklangan userni qayta ochishi;
+- admin harakatlari audit tarixini ko'rishi;
+- ruxsatli va bloklangan userlar sonini ko'rishi mumkin.
+
+```text
+/admin       - admin panel
+/health      - bot, DB, Mini App va service holati
+/stats       - umumiy statistika
+/backup      - assistant.db backup faylini yaratib yuborish
+/users       - ruxsat berilgan userlar
+/audit       - admin harakatlari tarixi
+/allow ID    - userga ruxsat berish
+/deny ID     - allowed_users.txt ichidan olib tashlash
+```
+
+Moliya uchun tezkor buyruqlar:
+
+```text
+/exportcsv              - o'z operatsiyalaringizni CSV qilib olish
+/undo                   - oxirgi operatsiyani o'chirish
+/setcat 15 Ovqat        - 15-ID operatsiya kategoriyasini o'zgartirish
+/limit Ovqat 1000000    - kategoriya bo'yicha oylik signal limiti
+/limits                 - limitlar ro'yxati
+```
+
+Bot oddiy savollarga ham API'siz javob beradi: `balansim qancha`, `bugungi xarajat`, `haftalik hisobot`, `namoz vaqtlari`, `oxirgi operatsiyalar` kabi matnlarni yozish kifoya.
+
+Mini App ichida moliya bo'limidan:
+
+- qo'lda kirim yoki chiqim qo'shish;
+- operatsiyani tahrirlash yoki o'chirish;
+- kategoriya bo'yicha oylik limit qo'shish yoki o'chirish;
+- CSV export olish mumkin.
+
+FSM holatlar `assistant.db` ichida saqlanadi, shuning uchun bot restart bo'lsa ham wizard holatlari MemoryStorage kabi darhol yo'qolmaydi.
+
+## Kod tuzilmasi
+
+Asosiy fayl hali `assistant_bot.py`, lekin eng ko'p o'zgaradigan qismlar ajratilgan:
+
+```text
+db.py                  - SQLite ulanishi va vaqt helperlari
+db_schema.py           - SQLite jadval va indekslarini yaratish
+access_control.py      - user/admin ruxsatlari, allow/block fayllari
+finance.py             - UZCARD/HUMO parserlari
+finance_store.py       - moliya DB saqlash, balans, limit va export funksiyalari
+user_store.py          - profil, admin user ro'yxati va audit log DB funksiyalari
+reminder_store.py      - eslatmalarni DBga yozish/o'qish va repeat logikasi
+prayer_store.py        - namoz eslatma sozlamalarini DBda saqlash
+reminders.py           - eslatma matnini tushunish parserlari
+prayer_times.py        - namoz vaqti hisoblash va shaharlar
+miniapp_auth.py        - Telegram Mini App auth va JSON helperlari
+miniapp_api.py         - Mini App API endpointlari va route ro'yxati
+fsm_sqlite_storage.py  - aiogram FSM uchun SQLite storage
+handlers/              - Telegram command handler registratorlari
+tests/                 - parser testlari
+miniapp/               - Telegram Mini App frontend
+```
+
+Parser testlarini ishga tushirish:
+
+```cmd
+python -m unittest discover -s tests
+```
+
+Serverga yangilash:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\local-tools\deploy_server.ps1
+```
+
+## Backup va monitoring
+
+Serverda bot o'zi DB backup qiladi. Sozlamalar `.env` orqali:
+
+```env
+BACKUP_CHECK_SECONDS=900
+BACKUP_HOUR=3
+BACKUP_KEEP_LAST=14
+HEALTH_CHECK_SECONDS=300
+```
+
+Backup fayllar `backups/` papkasida saqlanadi va GitHubga chiqmaydi.

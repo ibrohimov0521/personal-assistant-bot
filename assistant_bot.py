@@ -1,37 +1,30 @@
 import asyncio
-import csv
-import hashlib
-import hmac
-import io
 import json
 import logging
-import math
 import os
 import re
-import time
-from calendar import monthrange
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import parse_qsl
+from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
-import aiosqlite
+import aiohttp
 from aiohttp import web
-from aiogram import Bot, Dispatcher, F, Router
+from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
+    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
     MenuButtonWebApp,
     Message,
     ReplyKeyboardMarkup,
+    TelegramObject,
     WebAppInfo,
 )
 from aiogram.utils.markdown import hbold, hcode
@@ -41,8 +34,80 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
-DB_PATH = BASE_DIR / "assistant.db"
+from access_control import (
+    admin_user_ids,
+    allowed_user_ids,
+    blocked_user_ids,
+    is_admin_user,
+    permitted_user_ids,
+)
+from db import DB_PATH, connect_db, parse_utc, utc_text
+from db_schema import init_db
+from finance import (
+    ParsedBalance,
+    ParsedTransaction,
+    clean_amount,
+    detect_category,
+    looks_like_bank_message,
+    parse_bank_message,
+)
+from finance_store import (
+    delete_transaction,
+    export_transactions_csv_file,
+    get_card_balances,
+    get_category_limits,
+    get_transaction_by_id,
+    get_transactions,
+    get_user_setting,
+    save_finance_text,
+    save_transaction,
+    set_category_limit,
+    update_transaction,
+)
+from fsm_sqlite_storage import SQLiteFSMStorage
+from handlers.admin import AdminHandlerDeps, register_admin_handlers
+from miniapp_api import MiniAppApi, MiniAppContext, miniapp_error_middleware
+from prayer_times import (
+    PRAYER_CITIES,
+    PRAYER_NAMES,
+    calculate_prayer_times,
+    format_time_only,
+    normalize_prayer_city,
+)
+from prayer_store import (
+    active_prayer_settings,
+    get_prayer_setting,
+    mark_prayer_sent,
+    save_prayer_setting,
+    was_prayer_sent,
+)
+from reminders import (
+    detect_repeat_rule,
+    looks_like_reminder_request,
+    parse_inline_reminder,
+    parse_reminder_datetime,
+)
+from reminder_store import (
+    add_reminder,
+    delete_reminder,
+    due_reminders,
+    list_completed_reminder_records,
+    list_pending_reminder_records,
+    list_reminders,
+    mark_reminder_sent,
+)
+from user_store import (
+    add_audit_log,
+    admin_user_rows,
+    get_user_profile,
+    list_audit_logs,
+    save_user_profile_from_message,
+    save_user_profile_from_webapp_user,
+)
+
+
 MINIAPP_DIR = BASE_DIR / "miniapp"
+BACKUP_DIR = BASE_DIR / "backups"
 LOCAL_TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 
 logging.basicConfig(
@@ -84,35 +149,10 @@ PRAYER_DISABLE = "Eslatmani o'chirish"
 PRAYER_CITY = "Shahar tanlash"
 PRAYER_SETTINGS = "Namoz sozlamalari"
 
-PRAYER_NAMES = {
-    "fajr": "Bomdod",
-    "sunrise": "Quyosh",
-    "dhuhr": "Peshin",
-    "asr": "Asr",
-    "maghrib": "Shom",
-    "isha": "Xufton",
-}
-DEFAULT_PRAYER_KEYS = ["fajr", "dhuhr", "asr", "maghrib", "isha"]
-DEFAULT_PRAYER_CITY = os.getenv("PRAYER_DEFAULT_CITY", "Toshkent")
 REPEAT_LABELS = {
     "daily": "Har kuni",
     "weekly": "Har hafta",
     "monthly": "Har oy",
-}
-PRAYER_CITIES = {
-    "Toshkent": (41.2995, 69.2401),
-    "Samarqand": (39.6542, 66.9597),
-    "Buxoro": (39.7747, 64.4286),
-    "Andijon": (40.7821, 72.3442),
-    "Farg'ona": (40.3894, 71.7847),
-    "Namangan": (41.0011, 71.6683),
-    "Qarshi": (38.8606, 65.7890),
-    "Nukus": (42.4619, 59.6166),
-    "Urganch": (41.5500, 60.6333),
-    "Navoiy": (40.0844, 65.3792),
-    "Jizzax": (40.1250, 67.8808),
-    "Guliston": (40.4897, 68.7842),
-    "Termiz": (37.2242, 67.2783),
 }
 
 
@@ -130,31 +170,6 @@ class FinanceWizard(StatesGroup):
 
 class PrayerWizard(StatesGroup):
     waiting_city = State()
-
-
-@dataclass
-class ParsedTransaction:
-    type: str
-    amount: int
-    currency: str
-    occurred_at_utc: datetime
-    source: str
-    card_last4: str
-    description: str
-    category: str
-    balance_after: int | None
-    raw_text: str
-
-
-@dataclass
-class ParsedBalance:
-    source: str
-    card_last4: str
-    amount: int
-    currency: str
-    bank: str
-    owner: str
-    raw_text: str
 
 
 def mini_app_url() -> str:
@@ -242,22 +257,19 @@ def escape_html(text: object) -> str:
     )
 
 
-def allowed_user_ids() -> set[int]:
-    raw = os.getenv("ALLOWED_USER_IDS", "").strip()
-    if not raw:
-        return set()
-    result: set[int] = set()
-    for item in raw.split(","):
-        item = item.strip()
-        if item.isdigit():
-            result.add(int(item))
-    return result
+@router.message(
+    lambda message: message.from_user is not None
+    and message.from_user.id in blocked_user_ids()
+    and not is_admin_user(message.from_user.id)
+)
+async def reject_blocked(message: Message) -> None:
+    await message.answer("Bu botdan foydalanishingiz bloklangan.")
 
 
 @router.message(
-    lambda message: bool(allowed_user_ids())
+    lambda message: bool(permitted_user_ids())
     and message.from_user is not None
-    and message.from_user.id not in allowed_user_ids()
+    and message.from_user.id not in permitted_user_ids()
 )
 async def reject_not_allowed(message: Message) -> None:
     user_id = user_id_from(message)
@@ -277,1419 +289,20 @@ def now_local() -> datetime:
     return datetime.now(LOCAL_TZ)
 
 
-def utc_text(dt: datetime | None = None) -> str:
-    value = dt or datetime.now(timezone.utc)
-    return value.astimezone(timezone.utc).isoformat()
 
-
-def parse_utc(text: str) -> datetime:
-    return datetime.fromisoformat(text).astimezone(timezone.utc)
-
-
-async def init_db() -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS reminders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                chat_id INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                due_at TEXT NOT NULL,
-                message TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                sent_at TEXT,
-                repeat_rule TEXT NOT NULL DEFAULT ''
-            )
-            """
-        )
-        try:
-            await db.execute("ALTER TABLE reminders ADD COLUMN repeat_rule TEXT NOT NULL DEFAULT ''")
-        except aiosqlite.OperationalError:
-            pass
-        await db.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_reminders_due
-            ON reminders(status, due_at)
-            """
-        )
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                occurred_at TEXT NOT NULL,
-                type TEXT NOT NULL,
-                amount INTEGER NOT NULL,
-                currency TEXT NOT NULL DEFAULT 'UZS',
-                source TEXT,
-                card_last4 TEXT,
-                description TEXT,
-                category TEXT,
-                balance_after INTEGER,
-                raw_text TEXT NOT NULL
-            )
-            """
-        )
-        await db.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_transactions_user_date
-            ON transactions(user_id, occurred_at)
-            """
-        )
-        await db.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_transactions_dedupe
-            ON transactions(user_id, occurred_at, type, amount, card_last4)
-            """
-        )
-        await db.execute("UPDATE transactions SET raw_text = '' WHERE raw_text <> ''")
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS card_balances (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                source TEXT NOT NULL,
-                card_last4 TEXT NOT NULL,
-                bank TEXT,
-                owner TEXT,
-                amount INTEGER NOT NULL,
-                currency TEXT NOT NULL DEFAULT 'UZS',
-                raw_text TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE(user_id, card_last4)
-            )
-            """
-        )
-        await db.execute(
-            """
-            DELETE FROM card_balances
-            WHERE id NOT IN (
-                SELECT MAX(id)
-                FROM card_balances
-                GROUP BY user_id, card_last4
-            )
-            """
-        )
-        await db.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_card_balances_user_last4
-            ON card_balances(user_id, card_last4)
-            """
-        )
-        await db.execute("UPDATE card_balances SET raw_text = '' WHERE raw_text <> ''")
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS prayer_settings (
-                user_id INTEGER PRIMARY KEY,
-                chat_id INTEGER NOT NULL,
-                city TEXT NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 0,
-                prayers TEXT NOT NULL,
-                minutes_before INTEGER NOT NULL DEFAULT 0,
-                updated_at TEXT NOT NULL
-            )
-            """
-        )
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS prayer_sent (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                prayer_key TEXT NOT NULL,
-                prayer_date TEXT NOT NULL,
-                sent_at TEXT NOT NULL,
-                UNIQUE(user_id, prayer_key, prayer_date)
-            )
-            """
-        )
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS user_settings (
-                user_id INTEGER NOT NULL,
-                key TEXT NOT NULL,
-                value TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                PRIMARY KEY (user_id, key)
-            )
-            """
-        )
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS daily_report_sent (
-                user_id INTEGER NOT NULL,
-                report_date TEXT NOT NULL,
-                sent_at TEXT NOT NULL,
-                PRIMARY KEY (user_id, report_date)
-            )
-            """
-        )
-        await db.commit()
-
-
-async def add_reminder(user_id: int, chat_id: int, due_at: datetime, text: str, repeat_rule: str = "") -> int:
-    if repeat_rule not in REPEAT_LABELS:
-        repeat_rule = ""
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute(
-            """
-            INSERT INTO reminders (user_id, chat_id, created_at, due_at, message, status, repeat_rule)
-            VALUES (?, ?, ?, ?, ?, 'pending', ?)
-            """,
-            (user_id, chat_id, utc_text(), utc_text(due_at), text, repeat_rule),
-        )
-        await db.commit()
-        return int(cursor.lastrowid)
-
-
-async def list_reminders(user_id: int) -> list[tuple[int, datetime, str]]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        rows = await db.execute_fetchall(
-            """
-            SELECT id, due_at, message
-            FROM reminders
-            WHERE user_id = ? AND status = 'pending'
-            ORDER BY due_at ASC
-            LIMIT 30
-            """,
-            (user_id,),
-        )
-    return [(int(row[0]), parse_utc(row[1]), str(row[2])) for row in rows]
-
-
-async def list_pending_reminder_records(user_id: int, limit: int = 30) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        rows = await db.execute_fetchall(
-            """
-            SELECT id, created_at, due_at, message, status, sent_at, repeat_rule
-            FROM reminders
-            WHERE user_id = ? AND status = 'pending'
-            ORDER BY due_at ASC
-            LIMIT ?
-            """,
-            (user_id, limit),
-        )
-    return [
-        {
-            "id": int(row[0]),
-            "created_at": parse_utc(row[1]),
-            "due_at": parse_utc(row[2]),
-            "text": str(row[3]),
-            "status": str(row[4]),
-            "sent_at": parse_utc(row[5]) if row[5] else None,
-            "repeat_rule": str(row[6] or ""),
-        }
-        for row in rows
-    ]
-
-
-async def list_completed_reminder_records(user_id: int, limit: int = 30) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        rows = await db.execute_fetchall(
-            """
-            SELECT id, created_at, due_at, message, status, sent_at, repeat_rule
-            FROM reminders
-            WHERE user_id = ? AND status IN ('sent', 'cancelled')
-            ORDER BY COALESCE(sent_at, due_at) DESC
-            LIMIT ?
-            """,
-            (user_id, limit),
-        )
-    return [
-        {
-            "id": int(row[0]),
-            "created_at": parse_utc(row[1]),
-            "due_at": parse_utc(row[2]),
-            "text": str(row[3]),
-            "status": str(row[4]),
-            "sent_at": parse_utc(row[5]) if row[5] else None,
-            "repeat_rule": str(row[6] or ""),
-        }
-        for row in rows
-    ]
-
-
-async def delete_reminder(user_id: int, reminder_id: int) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute(
-            "UPDATE reminders SET status = 'cancelled' WHERE user_id = ? AND id = ? AND status = 'pending'",
-            (user_id, reminder_id),
-        )
-        await db.commit()
-        return cursor.rowcount > 0
-
-
-async def due_reminders() -> list[tuple[int, int, str]]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        rows = await db.execute_fetchall(
-            """
-            SELECT id, chat_id, message
-            FROM reminders
-            WHERE status = 'pending' AND due_at <= ?
-            ORDER BY due_at ASC
-            LIMIT 50
-            """,
-            (utc_text(),),
-        )
-    return [(int(row[0]), int(row[1]), str(row[2])) for row in rows]
-
-
-def add_months(dt: datetime, months: int = 1) -> datetime:
-    local = dt.astimezone(LOCAL_TZ)
-    month_index = local.month - 1 + months
-    year = local.year + month_index // 12
-    month = month_index % 12 + 1
-    day = min(local.day, monthrange(year, month)[1])
-    return local.replace(year=year, month=month, day=day).astimezone(timezone.utc)
-
-
-def next_repeat_due(due_at: datetime, repeat_rule: str) -> datetime | None:
-    if repeat_rule not in REPEAT_LABELS:
-        return None
-    now = datetime.now(timezone.utc)
-    next_due = due_at
-    while next_due <= now:
-        if repeat_rule == "daily":
-            next_due += timedelta(days=1)
-        elif repeat_rule == "weekly":
-            next_due += timedelta(weeks=1)
-        elif repeat_rule == "monthly":
-            next_due = add_months(next_due, 1)
-        else:
-            return None
-    return next_due
-
-
-async def mark_reminder_sent(reminder_id: int) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        rows = await db.execute_fetchall(
-            """
-            SELECT user_id, chat_id, due_at, message, repeat_rule
-            FROM reminders
-            WHERE id = ?
-            LIMIT 1
-            """,
-            (reminder_id,),
-        )
-        await db.execute(
-            "UPDATE reminders SET status = 'sent', sent_at = ? WHERE id = ?",
-            (utc_text(), reminder_id),
-        )
-        if rows:
-            user_id, chat_id, due_at_text, message, repeat_rule = rows[0]
-            next_due = next_repeat_due(parse_utc(due_at_text), str(repeat_rule or ""))
-            if next_due:
-                await db.execute(
-                    """
-                    INSERT INTO reminders (user_id, chat_id, created_at, due_at, message, status, repeat_rule)
-                    VALUES (?, ?, ?, ?, ?, 'pending', ?)
-                    """,
-                    (int(user_id), int(chat_id), utc_text(), utc_text(next_due), str(message), str(repeat_rule)),
-                )
-        await db.commit()
-
-
-async def save_transaction(user_id: int, tx: ParsedTransaction) -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        duplicate_rows = await db.execute_fetchall(
-            """
-            SELECT id
-            FROM transactions
-            WHERE user_id = ?
-              AND occurred_at = ?
-              AND type = ?
-              AND amount = ?
-              AND COALESCE(card_last4, '') = ?
-              AND COALESCE(description, '') = ?
-              AND COALESCE(category, '') = ?
-            LIMIT 1
-            """,
-            (
-                user_id,
-                utc_text(tx.occurred_at_utc),
-                tx.type,
-                tx.amount,
-                tx.card_last4 or "",
-                tx.description or "",
-                tx.category or "",
-            ),
-        )
-        if duplicate_rows:
-            return int(duplicate_rows[0][0])
-        cursor = await db.execute(
-            """
-            INSERT INTO transactions (
-                user_id, created_at, occurred_at, type, amount, currency, source,
-                card_last4, description, category, balance_after, raw_text
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                user_id,
-                utc_text(),
-                utc_text(tx.occurred_at_utc),
-                tx.type,
-                tx.amount,
-                tx.currency,
-                tx.source,
-                tx.card_last4,
-                tx.description,
-                tx.category,
-                tx.balance_after,
-                "",
-            ),
-        )
-        await db.commit()
-        return int(cursor.lastrowid)
-
-
-async def save_balances(user_id: int, balances: list[ParsedBalance]) -> int:
-    if not balances:
-        return 0
-    async with aiosqlite.connect(DB_PATH) as db:
-        for item in balances:
-            existing = await db.execute_fetchall(
-                """
-                SELECT id, source, bank, owner
-                FROM card_balances
-                WHERE user_id = ? AND card_last4 = ?
-                ORDER BY updated_at DESC, id DESC
-                LIMIT 1
-                """,
-                (user_id, item.card_last4),
-            )
-            if existing:
-                row_id, old_source, old_bank, old_owner = existing[0]
-                source = item.source if item.source and item.source != "CARD" else old_source
-                bank = item.bank or old_bank or ""
-                owner = item.owner or old_owner or ""
-                await db.execute(
-                    """
-                    UPDATE card_balances
-                    SET source = ?, bank = ?, owner = ?, amount = ?, currency = ?, raw_text = ?, updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (source, bank, owner, item.amount, item.currency, "", utc_text(), row_id),
-                )
-                await db.execute(
-                    "DELETE FROM card_balances WHERE user_id = ? AND card_last4 = ? AND id <> ?",
-                    (user_id, item.card_last4, row_id),
-                )
-            else:
-                await db.execute(
-                    """
-                    INSERT INTO card_balances (
-                        user_id, source, card_last4, bank, owner, amount, currency, raw_text, updated_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        user_id,
-                        item.source,
-                        item.card_last4,
-                        item.bank,
-                        item.owner,
-                        item.amount,
-                        item.currency,
-                        "",
-                        utc_text(),
-                    ),
-                )
-        await db.commit()
-    return len(balances)
-
-
-async def get_card_balances(user_id: int) -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        rows = await db.execute_fetchall(
-            """
-            SELECT source, card_last4, bank, owner, amount, currency, updated_at
-            FROM card_balances
-            WHERE user_id = ?
-            ORDER BY source ASC, card_last4 ASC
-            """,
-            (user_id,),
-        )
-    return [
-        {
-            "source": row[0],
-            "card_last4": row[1],
-            "bank": row[2] or "",
-            "owner": row[3] or "",
-            "amount": int(row[4]),
-            "currency": row[5],
-            "updated_at": parse_utc(row[6]),
-        }
-        for row in rows
-    ]
-
-
-async def get_card_balance(user_id: int, card_last4: str) -> dict | None:
-    if not card_last4:
-        return None
-    async with aiosqlite.connect(DB_PATH) as db:
-        rows = await db.execute_fetchall(
-            """
-            SELECT source, card_last4, bank, owner, amount, currency, updated_at
-            FROM card_balances
-            WHERE user_id = ? AND card_last4 = ?
-            ORDER BY updated_at DESC, id DESC
-            LIMIT 1
-            """,
-            (user_id, card_last4),
-        )
-    if not rows:
-        return None
-    row = rows[0]
-    return {
-        "source": row[0],
-        "card_last4": row[1],
-        "bank": row[2] or "",
-        "owner": row[3] or "",
-        "amount": int(row[4]),
-        "currency": row[5],
-        "updated_at": parse_utc(row[6]),
-    }
-
-
-async def get_transactions(
-    user_id: int,
-    start_utc: datetime | None = None,
-    end_utc: datetime | None = None,
-    tx_type: str | None = None,
-    limit: int = 200,
-) -> list[dict]:
-    query = """
-        SELECT id, occurred_at, type, amount, currency, source, card_last4, description, category, balance_after
-        FROM transactions
-        WHERE user_id = ?
-    """
-    params: list[object] = [user_id]
-    if start_utc is not None:
-        query += " AND occurred_at >= ?"
-        params.append(utc_text(start_utc))
-    if end_utc is not None:
-        query += " AND occurred_at < ?"
-        params.append(utc_text(end_utc))
-    if tx_type in {"income", "expense"}:
-        query += " AND type = ?"
-        params.append(tx_type)
-    query += " ORDER BY occurred_at DESC LIMIT ?"
-    params.append(limit)
-    async with aiosqlite.connect(DB_PATH) as db:
-        rows = await db.execute_fetchall(query, params)
-    return [
-        {
-            "id": row[0],
-            "occurred_at": parse_utc(row[1]),
-            "type": row[2],
-            "amount": row[3],
-            "currency": row[4],
-            "source": row[5] or "",
-            "card_last4": row[6] or "",
-            "description": row[7] or "",
-            "category": row[8] or "Boshqa",
-            "balance_after": row[9],
-        }
-        for row in rows
-    ]
-
-
-async def delete_transaction(user_id: int, transaction_id: int) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute(
-            "DELETE FROM transactions WHERE user_id = ? AND id = ?",
-            (user_id, transaction_id),
-        )
-        await db.commit()
-        return cursor.rowcount > 0
-
-
-async def update_transaction(
-    user_id: int,
-    transaction_id: int,
-    tx_type: str,
-    amount: int,
-    category: str,
-    description: str,
-    occurred_at: datetime | None = None,
-) -> bool:
-    if tx_type not in {"income", "expense"} or amount <= 0:
-        return False
-    async with aiosqlite.connect(DB_PATH) as db:
-        fields = ["type = ?", "amount = ?", "category = ?", "description = ?"]
-        params: list[object] = [
-            tx_type,
-            amount,
-            category.strip()[:60] or "Boshqa",
-            description.strip()[:120] or ("Kirim" if tx_type == "income" else "Xarajat"),
-        ]
-        if occurred_at is not None:
-            fields.append("occurred_at = ?")
-            params.append(utc_text(occurred_at))
-        params.extend([user_id, transaction_id])
-        cursor = await db.execute(
-            f"""
-            UPDATE transactions
-            SET {", ".join(fields)}
-            WHERE user_id = ? AND id = ?
-            """,
-            params,
-        )
-        await db.commit()
-        return cursor.rowcount > 0
-
-
-async def get_user_setting(user_id: int, key: str, default: str = "") -> str:
-    async with aiosqlite.connect(DB_PATH) as db:
-        rows = await db.execute_fetchall(
-            "SELECT value FROM user_settings WHERE user_id = ? AND key = ? LIMIT 1",
-            (user_id, key),
-        )
-    return str(rows[0][0]) if rows else default
-
-
-async def set_user_setting(user_id: int, key: str, value: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """
-            INSERT INTO user_settings (user_id, key, value, updated_at)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(user_id, key) DO UPDATE SET
-                value = excluded.value,
-                updated_at = excluded.updated_at
-            """,
-            (user_id, key, value, utc_text()),
-        )
-        await db.commit()
-
-
-async def clear_user_data(user_id: int, scope: str) -> None:
-    if scope not in {"finance", "reminders", "all"}:
-        raise ValueError("Unknown clear scope")
-    async with aiosqlite.connect(DB_PATH) as db:
-        if scope in {"finance", "all"}:
-            await db.execute("DELETE FROM transactions WHERE user_id = ?", (user_id,))
-            await db.execute("DELETE FROM card_balances WHERE user_id = ?", (user_id,))
-        if scope in {"reminders", "all"}:
-            await db.execute("DELETE FROM reminders WHERE user_id = ?", (user_id,))
-        if scope == "all":
-            await db.execute("DELETE FROM prayer_settings WHERE user_id = ?", (user_id,))
-            await db.execute("DELETE FROM prayer_sent WHERE user_id = ?", (user_id,))
-            await db.execute("DELETE FROM daily_report_sent WHERE user_id = ?", (user_id,))
-            await db.execute("DELETE FROM user_settings WHERE user_id = ?", (user_id,))
-        await db.commit()
-
-
-def default_prayer_setting(user_id: int, chat_id: int | None = None) -> dict:
-    return {
-        "user_id": user_id,
-        "chat_id": chat_id or 0,
-        "city": DEFAULT_PRAYER_CITY if DEFAULT_PRAYER_CITY in PRAYER_CITIES else "Toshkent",
-        "enabled": False,
-        "prayers": ",".join(DEFAULT_PRAYER_KEYS),
-        "minutes_before": 0,
-    }
-
-
-async def get_prayer_setting(user_id: int, chat_id: int | None = None) -> dict:
-    async with aiosqlite.connect(DB_PATH) as db:
-        rows = await db.execute_fetchall(
-            """
-            SELECT user_id, chat_id, city, enabled, prayers, minutes_before
-            FROM prayer_settings
-            WHERE user_id = ?
-            """,
-            (user_id,),
-        )
-    if not rows:
-        return default_prayer_setting(user_id, chat_id)
-    row = rows[0]
-    return {
-        "user_id": int(row[0]),
-        "chat_id": int(row[1]),
-        "city": row[2] if row[2] in PRAYER_CITIES else "Toshkent",
-        "enabled": bool(row[3]),
-        "prayers": row[4] if row[4] is not None else ",".join(DEFAULT_PRAYER_KEYS),
-        "minutes_before": int(row[5] or 0),
-    }
-
-
-async def save_prayer_setting(
-    user_id: int,
-    chat_id: int,
-    city: str | None = None,
-    enabled: bool | None = None,
-    prayers: str | None = None,
-    minutes_before: int | None = None,
-) -> dict:
-    current = await get_prayer_setting(user_id, chat_id)
-    chat_id_value = chat_id or current["chat_id"]
-    city_value = city or current["city"]
-    enabled_value = current["enabled"] if enabled is None else enabled
-    prayers_value = current["prayers"] if prayers is None else prayers
-    minutes_value = current["minutes_before"] if minutes_before is None else minutes_before
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """
-            INSERT INTO prayer_settings (
-                user_id, chat_id, city, enabled, prayers, minutes_before, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                chat_id = excluded.chat_id,
-                city = excluded.city,
-                enabled = excluded.enabled,
-                prayers = excluded.prayers,
-                minutes_before = excluded.minutes_before,
-                updated_at = excluded.updated_at
-            """,
-            (
-                user_id,
-                chat_id_value,
-                city_value,
-                1 if enabled_value else 0,
-                prayers_value,
-                minutes_value,
-                utc_text(),
-            ),
-        )
-        await db.commit()
-    return await get_prayer_setting(user_id, chat_id_value)
-
-
-async def active_prayer_settings() -> list[dict]:
-    async with aiosqlite.connect(DB_PATH) as db:
-        rows = await db.execute_fetchall(
-            """
-            SELECT user_id, chat_id, city, prayers, minutes_before
-            FROM prayer_settings
-            WHERE enabled = 1
-            """
-        )
-    return [
-        {
-            "user_id": int(row[0]),
-            "chat_id": int(row[1]),
-            "city": row[2] if row[2] in PRAYER_CITIES else "Toshkent",
-            "prayers": row[3] or ",".join(DEFAULT_PRAYER_KEYS),
-            "minutes_before": int(row[4] or 0),
-        }
-        for row in rows
-    ]
-
-
-async def was_prayer_sent(user_id: int, prayer_key: str, prayer_date: date) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
-        rows = await db.execute_fetchall(
-            """
-            SELECT 1
-            FROM prayer_sent
-            WHERE user_id = ? AND prayer_key = ? AND prayer_date = ?
-            LIMIT 1
-            """,
-            (user_id, prayer_key, prayer_date.isoformat()),
-        )
-    return bool(rows)
-
-
-async def mark_prayer_sent(user_id: int, prayer_key: str, prayer_date: date) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            """
-            INSERT OR IGNORE INTO prayer_sent (user_id, prayer_key, prayer_date, sent_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (user_id, prayer_key, prayer_date.isoformat(), utc_text()),
-        )
-        await db.commit()
-
-
-def parse_reminder_datetime(text: str) -> datetime | None:
-    raw = text.strip().lower()
-    now = now_local()
-    time_match = re.search(r"(?:soat\s*)?(\d{1,2})[:.](\d{2})", raw)
-    hour_only_match = None if time_match else re.search(r"\bsoat\s*(\d{1,2})(?:\s*(?:da|ga))?\b", raw)
-
-    def time_or_default(base: datetime, default_hour: int = 9) -> datetime:
-        if time_match:
-            hour = int(time_match.group(1))
-            minute = int(time_match.group(2))
-            if 0 <= hour <= 23 and 0 <= minute <= 59:
-                return base.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        if hour_only_match:
-            hour = int(hour_only_match.group(1))
-            if 0 <= hour <= 23:
-                return base.replace(hour=hour, minute=0, second=0, microsecond=0)
-        return base.replace(hour=default_hour, minute=0, second=0, microsecond=0)
-
-    if re.search(r"\byarim\s*soat", raw):
-        return (now + timedelta(minutes=30)).astimezone(timezone.utc)
-
-    relative = re.search(r"(\d+(?:[.,]\d+)?)\s*(daqiq\w*|minut\w*|min\b|minute\w*)", raw)
-    if relative:
-        minutes = float(relative.group(1).replace(",", "."))
-        return (now + timedelta(minutes=max(round(minutes), 1))).astimezone(timezone.utc)
-
-    relative = re.search(r"(\d+(?:[.,]\d+)?)\s*(soat\w*|hour\w*)", raw)
-    if relative:
-        hours = float(relative.group(1).replace(",", "."))
-        return (now + timedelta(minutes=max(round(hours * 60), 1))).astimezone(timezone.utc)
-
-    relative = re.search(r"(\d+)\s*(kun\w*|day\w*)", raw)
-    if relative:
-        base = now + timedelta(days=int(relative.group(1)))
-        return time_or_default(base).astimezone(timezone.utc)
-
-    relative = re.search(r"(\d+)\s*(hafta\w*|week\w*)", raw)
-    if relative:
-        base = now + timedelta(weeks=int(relative.group(1)))
-        return time_or_default(base).astimezone(timezone.utc)
-
-    relative = re.search(r"(\d+)\s*(oy\w*|month\w*)", raw)
-    if relative:
-        base = now + timedelta(days=30 * int(relative.group(1)))
-        return time_or_default(base).astimezone(timezone.utc)
-
-    if any(word in raw for word in ["indinga", "after tomorrow"]):
-        return time_or_default(now + timedelta(days=2)).astimezone(timezone.utc)
-
-    if any(word in raw for word in ["ertaga", "tomorrow"]):
-        return time_or_default(now + timedelta(days=1)).astimezone(timezone.utc)
-
-    if any(word in raw for word in ["bugun", "today"]):
-        due = time_or_default(now, default_hour=now.hour)
-        if due <= now:
-            due += timedelta(days=1)
-        return due.astimezone(timezone.utc)
-
-    weekdays = {
-        "dushanba": 0,
-        "seshanba": 1,
-        "chorshanba": 2,
-        "payshanba": 3,
-        "juma": 4,
-        "shanba": 5,
-        "yakshanba": 6,
-        "monday": 0,
-        "tuesday": 1,
-        "wednesday": 2,
-        "thursday": 3,
-        "friday": 4,
-        "saturday": 5,
-        "sunday": 6,
-    }
-    for word, weekday in weekdays.items():
-        if re.search(rf"\b{word}\b", raw):
-            days_ahead = (weekday - now.weekday()) % 7
-            if days_ahead == 0:
-                days_ahead = 7
-            return time_or_default(now + timedelta(days=days_ahead)).astimezone(timezone.utc)
-
-    patterns = [
-        (r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\s+(\d{1,2})[:.](\d{2})", "ymd"),
-        (r"(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})\s+(\d{1,2})[:.](\d{2})", "dmy"),
-        (r"(\d{1,2})[-/.](\d{1,2})\s+(\d{1,2})[:.](\d{2})", "dm"),
-    ]
-    for pattern, mode in patterns:
-        match = re.search(pattern, raw)
-        if not match:
-            continue
-        try:
-            if mode == "ymd":
-                year, month, day, hour, minute = map(int, match.groups())
-            elif mode == "dmy":
-                day, month, year, hour, minute = map(int, match.groups())
-            else:
-                day, month, hour, minute = map(int, match.groups())
-                year = now.year
-            due = datetime(year, month, day, hour, minute, tzinfo=LOCAL_TZ)
-            if mode == "dm" and due <= now:
-                due = due.replace(year=year + 1)
-            return due.astimezone(timezone.utc)
-        except ValueError:
-            return None
-
-    if time_match or hour_only_match:
-        due = time_or_default(now, default_hour=now.hour)
-        if due <= now:
-            due += timedelta(days=1)
-        return due.astimezone(timezone.utc)
-
-    return None
-
-
-def looks_like_reminder_request(text: str) -> bool:
-    raw = text.strip().lower()
-    if not raw:
-        return False
-    if any(word in raw for word in ["eslat", "eslatma", "esimga", "yodimga", "remind", "napom"]):
-        return True
-    if re.search(r"\d+(?:[.,]\d+)?\s*(daqiq\w*|minut\w*|min\b|minute\w*|soat\w*|hour\w*|kun\w*|day\w*|hafta\w*|week\w*|oy\w*|month\w*)", raw):
-        return True
-    if re.search(r"\byarim\s*soat", raw):
-        return True
-    if re.search(r"\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\s+\d{1,2}[:.]\d{2}", raw):
-        return True
-    if re.search(r"\d{1,2}[-/.]\d{1,2}(?:[-/.]\d{2,4})?\s+\d{1,2}[:.]\d{2}", raw):
-        return True
-    if re.search(r"\bsoat\s*\d{1,2}(?:[:.]\d{2})?(?:\s*(?:da|ga))?\b", raw):
-        return True
-    day_words = [
-        "bugun",
-        "ertaga",
-        "indinga",
-        "dushanba",
-        "seshanba",
-        "chorshanba",
-        "payshanba",
-        "juma",
-        "shanba",
-        "yakshanba",
-        "today",
-        "tomorrow",
-        "monday",
-        "tuesday",
-        "wednesday",
-        "thursday",
-        "friday",
-        "saturday",
-        "sunday",
-    ]
-    if any(word in raw for word in day_words):
-        return True
-    return False
-
-
-def detect_repeat_rule(text: str) -> str:
-    raw = text.strip().lower()
-    if re.search(r"\b(har\s*kuni|har\s*kun|every\s*day|daily)\b", raw):
-        return "daily"
-    if re.search(r"\b(har\s*hafta|every\s*week|weekly)\b", raw):
-        return "weekly"
-    if re.search(r"\b(har\s*oy|every\s*month|monthly)\b", raw):
-        return "monthly"
-    return ""
-
-
-def extract_reminder_text(text: str) -> str:
-    cleaned = text.strip()
-    for pattern in [
-        r"\b(?:har\s*kuni|har\s*kun|har\s*hafta|har\s*oy|every\s*day|daily|every\s*week|weekly|every\s*month|monthly)\b",
-        r"\b\d+(?:[.,]\d+)?\s*(?:daqiq\w*|minut\w*|min|minute\w*)\s*(?:keyin|song|so'ng|dan keyin)?\b",
-        r"\byarim\s*soat(?:dan)?\s*(?:keyin|song|so'ng)?\b",
-        r"\b\d+(?:[.,]\d+)?\s*(?:soat\w*|hour\w*)\s*(?:keyin|song|so'ng|dan keyin)?\b",
-        r"\b\d+\s*(?:kun\w*|day\w*)\s*(?:keyin|song|so'ng|dan keyin)?\b",
-        r"\b\d+\s*(?:hafta\w*|week\w*)\s*(?:keyin|song|so'ng|dan keyin)?\b",
-        r"\b\d+\s*(?:oy\w*|month\w*)\s*(?:keyin|song|so'ng|dan keyin)?\b",
-        r"\b(?:ertaga|bugun|indinga|tomorrow|today|after tomorrow)\b",
-        r"\b(?:dushanba|seshanba|chorshanba|payshanba|juma|shanba|yakshanba)\b",
-        r"\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
-        r"\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\s+\d{1,2}[:.]\d{2}\b",
-        r"\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\s+\d{1,2}[:.]\d{2}\b",
-        r"\b\d{1,2}[-/.]\d{1,2}\s+\d{1,2}[:.]\d{2}\b",
-        r"\b(?:soat\s*)?\d{1,2}[:.]\d{2}\b",
-        r"\bsoat\s*\d{1,2}(?:\s*(?:da|ga))?\b",
-    ]:
-        cleaned = re.sub(pattern, " ", cleaned, flags=re.I)
-    cleaned = re.sub(
-        r"\b(?:menga|meni|esimga|yodimga|sol|tushir|eslatib|eslat|eslatma|qil|qilib|qoy|qo'y|remind|me|please|iltimos)\b",
-        " ",
-        cleaned,
-        flags=re.I,
-    )
-    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.-:;")
-    if cleaned.lower() in {"shu xabarni", "shu xabar", "xabarni", "xabar"}:
-        return ""
-    return cleaned
-
-
-def parse_inline_reminder(text: str) -> tuple[datetime, str] | None:
-    if not looks_like_reminder_request(text):
-        return None
-    due_at = parse_reminder_datetime(text)
-    if not due_at:
-        return None
-    return due_at, extract_reminder_text(text)
-
-
-def parse_transaction_datetime(text: str) -> datetime:
-    raw = text.lower()
-    match = re.search(r"(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\s+(\d{1,2})[:.](\d{2})", raw)
-    if match:
-        day, month, year, hour, minute = map(int, match.groups())
-        if year < 100:
-            year += 2000
-        try:
-            return datetime(year, month, day, hour, minute, tzinfo=LOCAL_TZ).astimezone(timezone.utc)
-        except ValueError:
-            pass
-    match = re.search(r"(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})\s+(\d{1,2})[:.](\d{2})", raw)
-    if match:
-        year, month, day, hour, minute = map(int, match.groups())
-        try:
-            return datetime(year, month, day, hour, minute, tzinfo=LOCAL_TZ).astimezone(timezone.utc)
-        except ValueError:
-            pass
-    match = re.search(r"(\d{1,2})[:.](\d{2})\s+(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})", raw)
-    if match:
-        hour, minute, day, month, year = map(int, match.groups())
-        if year < 100:
-            year += 2000
-        try:
-            return datetime(year, month, day, hour, minute, tzinfo=LOCAL_TZ).astimezone(timezone.utc)
-        except ValueError:
-            pass
-    return datetime.now(timezone.utc)
-
-
-def clean_amount(raw: str) -> int:
-    value = raw.replace(" ", "").replace("'", "").replace("\u00a0", "")
-    if "," in value and "." in value:
-        if value.rfind(",") < value.rfind("."):
-            value = value.replace(",", "")
-        else:
-            value = value.replace(".", "").replace(",", ".")
-    elif "," in value:
-        parts = value.split(",")
-        if len(parts[-1]) == 3 and all(part.isdigit() for part in parts):
-            value = "".join(parts)
-        else:
-            value = value.replace(",", ".")
-    match = re.search(r"\d+(?:\.\d+)?", value)
-    if not match:
-        return 0
-    return int(round(float(match.group(0))))
-
-
-def normalize_sign(sign: str | None) -> str | None:
-    if sign in {"➕", "＋"}:
-        return "+"
-    if sign in {"➖", "−", "–", "—"}:
-        return "-"
-    return sign or None
-
-
-def find_amount(text: str) -> tuple[str | None, int]:
-    signed = re.search(r"([+\-➕➖＋−–—])\s*([0-9][0-9\s'.,\u00a0]*)\s*(uzs|sum|so'?m|som)", text, re.I)
-    if signed:
-        return normalize_sign(signed.group(1)), clean_amount(signed.group(2))
-
-    labelled = re.search(
-        r"(summa|miqdor|amount|kirim|chiqim|xarajat|oplata|platezh|payment|to'?ldirish|toldirish)[^\d+\-➕➖＋−–—]*([+\-➕➖＋−–—]?)\s*([0-9][0-9\s'.,\u00a0]*)",
-        text,
-        re.I,
-    )
-    if labelled:
-        return normalize_sign(labelled.group(2)), clean_amount(labelled.group(3))
-
-    manual = re.search(r"([0-9][0-9\s'.,\u00a0]*)", text)
-    if manual:
-        return None, clean_amount(manual.group(1))
-    return None, 0
-
-
-def detect_tx_type(text: str, sign: str | None, fallback: str | None = None) -> str | None:
-    lowered = text.lower()
-    if sign == "+":
-        return "income"
-    if sign == "-":
-        return "expense"
-    income_words = [
-        "kirim",
-        "tushdi",
-        "kelib tushdi",
-        "to'ldirish",
-        "toldirish",
-        "topup",
-        "top up",
-        "popolnenie",
-        "income",
-        "plus",
-    ]
-    expense_words = [
-        "chiqim",
-        "xarajat",
-        "to'lov",
-        "tolov",
-        "oplata",
-        "platezh",
-        "payment",
-        "spisanie",
-        "minus",
-    ]
-    if any(word in lowered for word in income_words):
-        return "income"
-    if any(word in lowered for word in expense_words):
-        return "expense"
-    return fallback
-
-
-def detect_source(text: str) -> str:
-    lowered = text.lower()
-    if "humo" in lowered:
-        return "HUMO"
-    if "uzcard" in lowered or "cardxabar" in lowered:
-        return "UZCARD"
-    return "BANK"
-
-
-def detect_card_last4(text: str) -> str:
-    patterns = [
-        r"(?:karta|card|карта)[^\d*]{0,20}(?:[*xX.\s]{2,})?(\d{4})",
-        r"(?:[*xX.]{2,}\s*)(\d{4})",
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.I)
-        if match:
-            return match.group(1)
-    return ""
-
-
-def detect_balance(text: str) -> int | None:
-    match = re.search(
-        r"(balans|balance|qoldiq|остаток|доступно)[^\d]{0,20}([0-9][0-9\s'.,\u00a0]*)",
-        text,
-        re.I,
-    )
-    if not match:
-        return None
-    amount = clean_amount(match.group(2))
-    return amount or None
-
-
-def detect_category(text: str) -> str:
-    lowered = text.lower()
-    categories = [
-        ("Ovqat", ["ovqat", "food", "kafe", "cafe", "restoran", "restaurant", "fast food"]),
-        ("Transport", ["taxi", "yandex", "transport", "yo'l", "yol", "metro", "avtobus"]),
-        ("Market", ["market", "supermarket", "magazin", "do'kon", "dokon", "korzinka", "makro"]),
-        ("Aloqa", ["paynet", "internet", "telefon", "beeline", "uzmobile", "ucell", "mobiuz"]),
-        ("Kiyim", ["kiyim", "clothes", "fashion", "обув", "odej", "dress"]),
-        ("Dorixona", ["apteka", "dorixona", "pharmacy"]),
-        ("Uy", ["kommunal", "gaz", "svet", "elektr", "ijara", "arenda"]),
-        ("Ish haqi", ["ish haqi", "oylik", "salary", "maosh"]),
-    ]
-    for category, keywords in categories:
-        if any(keyword in lowered for keyword in keywords):
-            return category
-    return "Boshqa"
-
-
-def looks_like_bank_message(text: str) -> bool:
-    lowered = text.lower()
-    keywords = [
-        "uzcard",
-        "humo",
-        "cardxabar",
-        "karta",
-        "card",
-        "balans",
-        "balance",
-        "ostatok",
-        "остаток",
-        "uzs",
-        "сум",
-        "so'm",
-        "sum",
-    ]
-    return any(keyword in lowered for keyword in keywords) and bool(re.search(r"\d", text))
-
-
-def parse_bank_message(text: str, fallback_type: str | None = None) -> ParsedTransaction | None:
-    sign, amount = find_amount(text)
-    tx_type = detect_tx_type(text, sign, fallback_type)
-    if not tx_type or amount <= 0:
-        return None
-    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
-    description = first_line[:120] if first_line else ("Kirim" if tx_type == "income" else "Xarajat")
-    return ParsedTransaction(
-        type=tx_type,
-        amount=amount,
-        currency="UZS",
-        occurred_at_utc=parse_transaction_datetime(text),
-        source=detect_source(text),
-        card_last4=detect_card_last4(text),
-        description=description,
-        category=detect_category(text),
-        balance_after=detect_balance(text),
-        raw_text=text,
-    )
-
-
-def parse_balance_message(text: str) -> list[ParsedBalance]:
-    balances = parse_uzcard_balances(text)
-    if not balances:
-        balances = parse_humo_balances(text)
-    unique: dict[str, ParsedBalance] = {}
-    for item in balances:
-        if item.card_last4:
-            unique[item.card_last4] = item
-    return list(unique.values())
-
-
-def parse_uzcard_balances(text: str) -> list[ParsedBalance]:
-    lowered = text.lower()
-    if "umumiy balans" not in lowered and "karta:" not in lowered:
-        return []
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    result: list[ParsedBalance] = []
-    current: dict[str, str] | None = None
-
-    for line in lines:
-        card_match = re.search(r"karta:\s*([0-9* xX.]+)", line, re.I)
-        if card_match:
-            if current:
-                balance = balance_from_block(current, text, "UZCARD")
-                if balance:
-                    result.append(balance)
-            current = {"card": card_match.group(1), "bank": "", "owner": "", "amount": ""}
-            continue
-        if current is None:
-            continue
-        bank_match = re.search(r"bank:\s*(.+)", line, re.I)
-        if bank_match:
-            current["bank"] = bank_match.group(1).strip()
-            continue
-        amount_match = re.search(r"([0-9][0-9\s'.,\u00a0]*)\s*(so'?m|сум|uzs|sum)", line, re.I)
-        if amount_match:
-            current["amount"] = amount_match.group(1)
-            continue
-        if not current["owner"] and not any(token in line.lower() for token in ["umumiy", "balans", "karta:", "bank:"]):
-            current["owner"] = cleanup_bank_label(line)
-
-    if current:
-        balance = balance_from_block(current, text, "UZCARD")
-        if balance:
-            result.append(balance)
-    return result
-
-
-def balance_from_block(block: dict[str, str], raw_text: str, source: str) -> ParsedBalance | None:
-    card_last4 = last4_from_card(block.get("card", ""))
-    amount_text = block.get("amount", "")
-    if not card_last4 or not amount_text:
-        return None
-    return ParsedBalance(
-        source=source,
-        card_last4=card_last4,
-        amount=clean_amount(amount_text),
-        currency="UZS",
-        bank=block.get("bank", ""),
-        owner=block.get("owner", ""),
-        raw_text=raw_text,
-    )
-
-
-def parse_humo_balances(text: str) -> list[ParsedBalance]:
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    result: list[ParsedBalance] = []
-    pending: dict[str, str] | None = None
-
-    for line in lines:
-        card_match = re.search(r"(.+?)\s*\*(\d{4})\s*$", line)
-        if card_match:
-            label = cleanup_bank_label(card_match.group(1))
-            pending = {
-                "label": label,
-                "card_last4": card_match.group(2),
-                "source": detect_balance_source(label),
-                "bank": detect_balance_bank(label),
-            }
-            continue
-        amount_match = re.search(r"([0-9][0-9\s'.,\u00a0]*)\s*(uzs|so'?m|сум|sum)", line, re.I)
-        if pending and amount_match:
-            result.append(
-                ParsedBalance(
-                    source=pending["source"],
-                    card_last4=pending["card_last4"],
-                    amount=clean_amount(amount_match.group(1)),
-                    currency="UZS",
-                    bank=pending["bank"],
-                    owner="",
-                    raw_text=text,
-                )
-            )
-            pending = None
-    return result
-
-
-def cleanup_bank_label(text: str) -> str:
-    return re.sub(r"^[^\w\d]+", "", text, flags=re.U).strip()
-
-
-def detect_balance_source(label: str) -> str:
-    lowered = label.lower()
-    if "humo" in lowered:
-        return "HUMO"
-    if "visa" in lowered:
-        return "VISA"
-    if "uzcard" in lowered:
-        return "UZCARD"
-    return "CARD"
-
-
-def detect_balance_bank(label: str) -> str:
-    cleaned = label.strip()
-    cleaned = re.sub(r"\b(humocard|humo|visa|uzcard)\b", "", cleaned, flags=re.I).strip()
-    return cleaned or label.strip()
-
-
-def last4_from_card(text: str) -> str:
-    digits = re.findall(r"\d", text)
-    if len(digits) >= 4:
-        return "".join(digits[-4:])
-    return ""
-
-
-def fix_angle(value: float) -> float:
-    return value - 360.0 * math.floor(value / 360.0)
-
-
-def fix_hour(value: float) -> float:
-    return value - 24.0 * math.floor(value / 24.0)
-
-
-def deg_sin(value: float) -> float:
-    return math.sin(math.radians(value))
-
-
-def deg_cos(value: float) -> float:
-    return math.cos(math.radians(value))
-
-
-def deg_tan(value: float) -> float:
-    return math.tan(math.radians(value))
-
-
-def deg_asin(value: float) -> float:
-    return math.degrees(math.asin(value))
-
-
-def deg_acos(value: float) -> float:
-    return math.degrees(math.acos(max(-1.0, min(1.0, value))))
-
-
-def julian_day(day: date) -> float:
-    year = day.year
-    month = day.month
-    current_day = day.day
-    if month <= 2:
-        year -= 1
-        month += 12
-    century = math.floor(year / 100)
-    correction = 2 - century + math.floor(century / 4)
-    return (
-        math.floor(365.25 * (year + 4716))
-        + math.floor(30.6001 * (month + 1))
-        + current_day
-        + correction
-        - 1524.5
-    )
-
-
-def sun_position(day: date) -> tuple[float, float]:
-    days_from_epoch = julian_day(day) - 2451545.0
-    mean_anomaly = fix_angle(357.529 + 0.98560028 * days_from_epoch)
-    mean_longitude = fix_angle(280.459 + 0.98564736 * days_from_epoch)
-    ecliptic_longitude = fix_angle(
-        mean_longitude
-        + 1.915 * deg_sin(mean_anomaly)
-        + 0.020 * deg_sin(2 * mean_anomaly)
-    )
-    obliquity = 23.439 - 0.00000036 * days_from_epoch
-    right_ascension = math.degrees(
-        math.atan2(deg_cos(obliquity) * deg_sin(ecliptic_longitude), deg_cos(ecliptic_longitude))
-    ) / 15.0
-    right_ascension = fix_hour(right_ascension)
-    declination = deg_asin(deg_sin(obliquity) * deg_sin(ecliptic_longitude))
-    equation_of_time = mean_longitude / 15.0 - right_ascension
-    return declination, equation_of_time
-
-
-def timezone_hours(day: date) -> float:
-    midday = datetime(day.year, day.month, day.day, 12, 0, tzinfo=LOCAL_TZ)
-    offset = midday.utcoffset() or timedelta(hours=5)
-    return offset.total_seconds() / 3600.0
-
-
-def sun_hour_angle(angle: float, latitude: float, declination: float) -> float:
-    numerator = -deg_sin(angle) - deg_sin(latitude) * deg_sin(declination)
-    denominator = deg_cos(latitude) * deg_cos(declination)
-    return deg_acos(numerator / denominator) / 15.0
-
-
-def local_datetime_from_hour(day: date, hour_value: float) -> datetime:
-    hour_value = fix_hour(hour_value)
-    hour = int(hour_value)
-    minute_float = (hour_value - hour) * 60
-    minute = int(round(minute_float))
-    if minute >= 60:
-        hour += 1
-        minute -= 60
-    if hour >= 24:
-        hour -= 24
-    return datetime(day.year, day.month, day.day, hour, minute, tzinfo=LOCAL_TZ)
-
-
-def calculate_prayer_times(city: str, day: date | None = None) -> dict[str, datetime]:
-    target_day = day or now_local().date()
-    latitude, longitude = PRAYER_CITIES.get(city, PRAYER_CITIES["Toshkent"])
-    declination, equation = sun_position(target_day)
-    noon = 12 + timezone_hours(target_day) - longitude / 15.0 - equation
-    asr_shadow_factor = 2  # Uzbekistanda odatda Hanafi ishlatiladi.
-    asr_angle = math.degrees(math.atan(1 / (asr_shadow_factor + deg_tan(abs(latitude - declination)))))
-
-    times = {
-        "fajr": noon - sun_hour_angle(18.0, latitude, declination),
-        "sunrise": noon - sun_hour_angle(0.833, latitude, declination),
-        "dhuhr": noon,
-        "asr": noon + sun_hour_angle(-asr_angle, latitude, declination),
-        "maghrib": noon + sun_hour_angle(0.833, latitude, declination),
-        "isha": noon + sun_hour_angle(17.0, latitude, declination),
-    }
-    return {key: local_datetime_from_hour(target_day, value) for key, value in times.items()}
-
-
-def normalize_prayer_city(text: str) -> str | None:
-    raw = text.strip().lower().replace("'", "").replace("`", "")
-    aliases = {
-        "tashkent": "Toshkent",
-        "toshkent": "Toshkent",
-        "samarkand": "Samarqand",
-        "samarqand": "Samarqand",
-        "bukhara": "Buxoro",
-        "buxoro": "Buxoro",
-        "andijon": "Andijon",
-        "andijan": "Andijon",
-        "fargona": "Farg'ona",
-        "fargana": "Farg'ona",
-        "fergana": "Farg'ona",
-        "namangan": "Namangan",
-        "qarshi": "Qarshi",
-        "karshi": "Qarshi",
-        "nukus": "Nukus",
-        "urganch": "Urganch",
-        "urgench": "Urganch",
-        "navoiy": "Navoiy",
-        "navoi": "Navoiy",
-        "jizzax": "Jizzax",
-        "jizzakh": "Jizzax",
-        "guliston": "Guliston",
-        "termiz": "Termiz",
-        "termez": "Termiz",
-    }
-    if raw in aliases:
-        return aliases[raw]
-    for city in PRAYER_CITIES:
-        if city.lower().replace("'", "") == raw:
-            return city
-    return None
-
-
-def format_time_only(dt: datetime) -> str:
-    return dt.astimezone(LOCAL_TZ).strftime("%H:%M")
+class UserProfileMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+    ) -> Any:
+        if isinstance(event, Message):
+            try:
+                await save_user_profile_from_message(event)
+            except Exception as exc:
+                logging.warning("User profile saqlanmadi: %s", exc)
+        return await handler(event, data)
 
 
 def format_prayer_times(city: str, day: date | None = None) -> str:
@@ -1756,6 +369,31 @@ def format_balances_saved(count: int, balances: list[ParsedBalance]) -> str:
     return "\n".join(lines)
 
 
+def finance_warning_text(category_expenses: dict[str, int], category_limits: dict[str, int]) -> list[str]:
+    warnings: list[str] = []
+    lower_totals = {category.lower(): (category, amount) for category, amount in category_expenses.items()}
+    for limit_category, limit in category_limits.items():
+        row = lower_totals.get(limit_category.lower())
+        if not row:
+            continue
+        category, amount = row
+        if amount >= limit:
+            warnings.append(f"{category}: limit oshdi ({format_money(amount)} / {format_money(limit)})")
+        elif amount >= limit * 0.8:
+            warnings.append(f"{category}: limitga yaqin ({format_money(amount)} / {format_money(limit)})")
+    return warnings
+
+
+async def build_finance_warnings(user_id: int, category_expenses: dict[str, int]) -> list[dict[str, str]]:
+    category_limits = await get_category_limits(user_id)
+    warnings: list[dict[str, str]] = []
+    for text in finance_warning_text(category_expenses, category_limits):
+        icon = "triangle-alert" if "oshdi" in text else "bell-ring"
+        title = "Kategoriya limiti"
+        warnings.append({"icon": icon, "title": title, "text": text})
+    return warnings
+
+
 async def format_report(user_id: int, period: str) -> str:
     start, end, title = period_range(period)
     rows = await get_transactions(user_id, start, end)
@@ -1780,6 +418,11 @@ async def format_report(user_id: int, period: str) -> str:
         lines.extend(["", hbold("Xarajat kategoriyalari")])
         for category, amount in sorted(category_expenses.items(), key=lambda item: item[1], reverse=True)[:8]:
             lines.append(f"- {escape_html(category)}: {hcode(format_money(amount))}")
+        warnings = finance_warning_text(category_expenses, await get_category_limits(user_id))
+        if warnings:
+            lines.extend(["", hbold("Limit signallari")])
+            for warning in warnings:
+                lines.append(f"- {escape_html(warning)}")
 
     balances = await get_card_balances(user_id)
     if balances:
@@ -1791,7 +434,7 @@ async def format_report(user_id: int, period: str) -> str:
 
 
 async def daily_report_users() -> list[tuple[int, int]]:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         rows = await db.execute_fetchall(
             """
             SELECT DISTINCT user_id, chat_id
@@ -1807,7 +450,7 @@ async def daily_report_users() -> list[tuple[int, int]]:
 
 
 async def was_daily_report_sent(user_id: int, report_date: date) -> bool:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         rows = await db.execute_fetchall(
             """
             SELECT 1
@@ -1821,7 +464,7 @@ async def was_daily_report_sent(user_id: int, report_date: date) -> bool:
 
 
 async def mark_daily_report_sent(user_id: int, report_date: date) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
+    async with connect_db() as db:
         await db.execute(
             """
             INSERT OR IGNORE INTO daily_report_sent (user_id, report_date, sent_at)
@@ -1856,55 +499,6 @@ async def format_card_balances(user_id: int) -> str:
     return "\n".join(lines).strip()
 
 
-async def estimated_balance_from_transaction(user_id: int, tx: ParsedTransaction) -> ParsedBalance | None:
-    if not tx.card_last4:
-        return None
-    current = await get_card_balance(user_id, tx.card_last4)
-    if not current:
-        if tx.type != "income":
-            return None
-        return ParsedBalance(
-            source=tx.source,
-            card_last4=tx.card_last4,
-            amount=tx.amount,
-            currency=tx.currency,
-            bank="",
-            owner="",
-            raw_text=tx.raw_text,
-        )
-    amount = current["amount"] + tx.amount if tx.type == "income" else current["amount"] - tx.amount
-    if amount < 0:
-        amount = 0
-    return ParsedBalance(
-        source=tx.source if tx.source and tx.source != "BANK" else current["source"],
-        card_last4=tx.card_last4,
-        amount=amount,
-        currency=tx.currency,
-        bank=current["bank"],
-        owner=current["owner"],
-        raw_text=tx.raw_text,
-    )
-
-
-async def save_finance_text(user_id: int, text: str) -> tuple[ParsedTransaction | None, int | None, list[ParsedBalance], int, bool]:
-    tx = parse_bank_message(text)
-    bank_balances = parse_balance_message(text)
-    balances = list(bank_balances)
-    used_estimated_balance = False
-    tx_id: int | None = None
-    balance_count = 0
-    if tx:
-        tx_id = await save_transaction(user_id, tx)
-        if tx.card_last4 and not any(item.card_last4 == tx.card_last4 for item in bank_balances):
-            estimated = await estimated_balance_from_transaction(user_id, tx)
-            if estimated:
-                balances.append(estimated)
-                used_estimated_balance = True
-    if balances:
-        balance_count = await save_balances(user_id, balances)
-    return tx, tx_id, balances, balance_count, used_estimated_balance
-
-
 def format_finance_saved(
     tx: ParsedTransaction | None,
     tx_id: int | None,
@@ -1935,6 +529,15 @@ async def format_last_transactions(user_id: int) -> str:
             f"{escape_html(row['category'])} | {format_local(row['occurred_at'])}"
         )
     return "\n".join(lines)
+
+
+async def delete_last_transaction(user_id: int) -> dict | None:
+    rows = await get_transactions(user_id, limit=1)
+    if not rows:
+        return None
+    row = rows[0]
+    ok = await delete_transaction(user_id, int(row["id"]))
+    return row if ok else None
 
 
 def json_dt(dt: datetime) -> str:
@@ -1973,6 +576,8 @@ def reminder_json(row: dict) -> dict:
 
 
 async def dashboard_payload(user_id: int, chat_id: int | None = None) -> dict:
+    user_profile = await get_user_profile(user_id)
+    is_admin = is_admin_user(user_id)
     balances = await get_card_balances(user_id)
     today_start, today_end, _ = period_range("today")
     week_start, week_end, _ = period_range("week")
@@ -1989,6 +594,7 @@ async def dashboard_payload(user_id: int, chat_id: int | None = None) -> dict:
     enabled_prayers = {key for key in prayer_setting["prayers"].split(",") if key in DEFAULT_PRAYER_KEYS}
     daily_limit = int((await get_user_setting(user_id, "daily_expense_limit", "0")) or 0)
     daily_report_enabled = (await get_user_setting(user_id, "daily_report_enabled", "1")) != "0"
+    category_limits = await get_category_limits(user_id)
     now = now_local()
     next_prayer = None
     for key in ["fajr", "dhuhr", "asr", "maghrib", "isha"]:
@@ -2019,9 +625,25 @@ async def dashboard_payload(user_id: int, chat_id: int | None = None) -> dict:
         if row["type"] == "expense":
             category = row["category"] or "Boshqa"
             category_totals[category] = category_totals.get(category, 0) + row["amount"]
+    finance_warnings = await build_finance_warnings(user_id, category_totals)
 
     return {
         "generated_at": json_dt(now),
+        "is_admin": is_admin,
+        "current_user": {
+            "user_id": user_id,
+            "name": (user_profile or {}).get("first_name", "") if user_profile else "",
+            "last_name": (user_profile or {}).get("last_name", "") if user_profile else "",
+            "username": (user_profile or {}).get("username", "") if user_profile else "",
+            "chat_id": (user_profile or {}).get("chat_id") if user_profile else None,
+            "language_code": (user_profile or {}).get("language_code", "") if user_profile else "",
+        },
+        "admin": {
+            "users": await admin_user_rows() if is_admin else [],
+            "audit_logs": await list_audit_logs(20) if is_admin else [],
+            "allowed_count": len(allowed_user_ids()),
+            "blocked_count": len(blocked_user_ids()),
+        },
         "balances": [
             {
                 "label": balance_label(row),
@@ -2043,6 +665,11 @@ async def dashboard_payload(user_id: int, chat_id: int | None = None) -> dict:
         "categories": [
             {"name": name, "amount": amount, "amount_text": json_money(amount)}
             for name, amount in sorted(category_totals.items(), key=lambda item: item[1], reverse=True)[:6]
+        ],
+        "finance_warnings": finance_warnings,
+        "category_limits": [
+            {"category": category, "amount": amount, "amount_text": json_money(amount)}
+            for category, amount in sorted(category_limits.items())
         ],
         "recent_transactions": [transaction_json(row) for row in recent_rows],
         "transactions": [transaction_json(row) for row in transaction_rows],
@@ -2077,264 +704,22 @@ async def dashboard_payload(user_id: int, chat_id: int | None = None) -> dict:
     }
 
 
-def validate_telegram_init_data(init_data: str, bot_token: str) -> int | None:
-    if not init_data or not bot_token:
-        return None
-    parsed = dict(parse_qsl(init_data, keep_blank_values=True))
-    received_hash = parsed.pop("hash", None)
-    if not received_hash:
-        return None
-    data_check_string = "\n".join(f"{key}={parsed[key]}" for key in sorted(parsed))
-    secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
-    calculated_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(calculated_hash, received_hash):
-        return None
-    try:
-        auth_date = int(parsed.get("auth_date", "0"))
-    except ValueError:
-        return None
-    max_age = int(os.getenv("MINIAPP_AUTH_MAX_AGE_SECONDS", "86400"))
-    if not auth_date or (max_age > 0 and time.time() - auth_date > max_age):
-        return None
-    try:
-        user = json.loads(parsed.get("user", "{}"))
-        return int(user["id"])
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
-        return None
-
-
-def local_dev_user_id(request: web.Request) -> int | None:
-    preview_enabled = os.getenv("MINIAPP_ALLOW_LOCAL_PREVIEW", "").strip().lower()
-    if preview_enabled not in {"1", "true", "yes", "on"}:
-        return None
-    if request.remote not in {"127.0.0.1", "::1", "localhost"}:
-        return None
-    host = request.headers.get("Host", "").split(":", 1)[0].strip("[]").lower()
-    if host not in {"127.0.0.1", "localhost", "::1"}:
-        return None
-    if request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For"):
-        return None
-    raw = os.getenv("MINIAPP_DEV_USER_ID", "").strip()
-    if raw.isdigit():
-        return int(raw)
-    allowed = allowed_user_ids()
-    if len(allowed) == 1:
-        return next(iter(allowed))
-    return None
-
-
-async def miniapp_user_id(request: web.Request) -> int:
-    token = os.getenv("BOT_TOKEN", "").strip()
-    init_data = request.headers.get("X-Telegram-Init-Data", "")
-    user_id = validate_telegram_init_data(init_data, token) or local_dev_user_id(request)
-    if not user_id:
-        raise web.HTTPUnauthorized(text="Mini App auth failed")
-    allowed = allowed_user_ids()
-    if allowed and user_id not in allowed:
-        raise web.HTTPForbidden(text="User is not allowed")
-    return user_id
-
-
-def no_store_headers() -> dict[str, str]:
-    return {"Cache-Control": "no-store, max-age=0"}
-
-
-async def request_json(request: web.Request) -> dict:
-    try:
-        body = await request.json()
-    except (TypeError, ValueError, json.JSONDecodeError):
-        raise web.HTTPBadRequest(text="JSON body required")
-    if not isinstance(body, dict):
-        raise web.HTTPBadRequest(text="JSON object required")
-    return body
-
-
-async def miniapp_index(_: web.Request) -> web.FileResponse:
-    return web.FileResponse(MINIAPP_DIR / "index.html", headers=no_store_headers())
-
-
-async def miniapp_asset(request: web.Request) -> web.FileResponse:
-    filename = request.match_info["filename"]
-    safe_path = (MINIAPP_DIR / filename).resolve()
-    if MINIAPP_DIR.resolve() not in safe_path.parents:
-        raise web.HTTPForbidden()
-    if not safe_path.exists() or not safe_path.is_file():
-        raise web.HTTPNotFound()
-    return web.FileResponse(safe_path, headers=no_store_headers())
-
-
-async def miniapp_dashboard(request: web.Request) -> web.Response:
-    user_id = await miniapp_user_id(request)
-    payload = await dashboard_payload(user_id)
-    return web.json_response(payload, headers=no_store_headers())
-
-
-async def miniapp_reminder_delete(request: web.Request) -> web.Response:
-    user_id = await miniapp_user_id(request)
-    body = await request_json(request)
-    try:
-        reminder_id = int(body.get("id"))
-    except (TypeError, ValueError):
-        raise web.HTTPBadRequest(text="Reminder id required")
-    ok = await delete_reminder(user_id, reminder_id)
-    return web.json_response({"ok": ok}, headers=no_store_headers())
-
-
-async def miniapp_transaction_delete(request: web.Request) -> web.Response:
-    user_id = await miniapp_user_id(request)
-    body = await request_json(request)
-    try:
-        transaction_id = int(body.get("id"))
-    except (TypeError, ValueError):
-        raise web.HTTPBadRequest(text="Transaction id required")
-    ok = await delete_transaction(user_id, transaction_id)
-    return web.json_response({"ok": ok}, headers=no_store_headers())
-
-
-async def miniapp_transaction_update(request: web.Request) -> web.Response:
-    user_id = await miniapp_user_id(request)
-    body = await request_json(request)
-    try:
-        transaction_id = int(body.get("id"))
-        amount = int(clean_amount(str(body.get("amount", ""))))
-    except (TypeError, ValueError):
-        raise web.HTTPBadRequest(text="Transaction id and amount required")
-    tx_type = str(body.get("type", "")).strip()
-    category = str(body.get("category", "Boshqa")).strip()[:60] or "Boshqa"
-    description = str(body.get("description", "")).strip()[:120]
-    occurred_at = None
-    occurred_raw = str(body.get("occurred_at", "")).strip()
-    if occurred_raw:
-        try:
-            occurred_at = parse_utc(occurred_raw)
-        except ValueError:
-            occurred_at = None
-    ok = await update_transaction(user_id, transaction_id, tx_type, amount, category, description, occurred_at)
-    return web.json_response({"ok": ok}, headers=no_store_headers())
-
-
-async def miniapp_daily_limit(request: web.Request) -> web.Response:
-    user_id = await miniapp_user_id(request)
-    body = await request_json(request)
-    amount = clean_amount(str(body.get("amount", "")))
-    await set_user_setting(user_id, "daily_expense_limit", str(max(amount, 0)))
-    return web.json_response({"ok": True, "amount": amount}, headers=no_store_headers())
-
-
-async def miniapp_daily_report_setting(request: web.Request) -> web.Response:
-    user_id = await miniapp_user_id(request)
-    body = await request_json(request)
-    enabled = bool(body.get("enabled"))
-    await set_user_setting(user_id, "daily_report_enabled", "1" if enabled else "0")
-    return web.json_response({"ok": True, "enabled": enabled}, headers=no_store_headers())
-
-
-async def miniapp_export_transactions(request: web.Request) -> web.Response:
-    user_id = await miniapp_user_id(request)
-    rows = await get_transactions(user_id, limit=10000)
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["id", "date", "type", "amount", "currency", "source", "card_last4", "category", "description"])
-    for row in rows:
-        writer.writerow(
-            [
-                row["id"],
-                json_dt(row["occurred_at"]),
-                row["type"],
-                row["amount"],
-                row["currency"],
-                row["source"],
-                row["card_last4"],
-                row["category"],
-                row["description"],
-            ]
-        )
-    headers = no_store_headers()
-    headers["Content-Disposition"] = 'attachment; filename="assistant-transactions.csv"'
-    return web.Response(text=output.getvalue(), content_type="text/csv", charset="utf-8", headers=headers)
-
-
-async def miniapp_clear_data(request: web.Request) -> web.Response:
-    user_id = await miniapp_user_id(request)
-    body = await request_json(request)
-    scope = str(body.get("scope", "")).strip()
-    try:
-        await clear_user_data(user_id, scope)
-    except ValueError:
-        raise web.HTTPBadRequest(text="Unknown clear scope")
-    return web.json_response({"ok": True, "scope": scope}, headers=no_store_headers())
-
-
-async def miniapp_prayer_toggle(request: web.Request) -> web.Response:
-    user_id = await miniapp_user_id(request)
-    body = await request_json(request)
-    enabled = bool(body.get("enabled"))
-    prayers = ",".join(DEFAULT_PRAYER_KEYS) if enabled else ""
-    setting = await save_prayer_setting(user_id, 0, enabled=enabled, prayers=prayers)
-    return web.json_response({"ok": True, "enabled": setting["enabled"]}, headers=no_store_headers())
-
-
-async def miniapp_prayer_key(request: web.Request) -> web.Response:
-    user_id = await miniapp_user_id(request)
-    body = await request_json(request)
-    key = str(body.get("key", "")).strip()
-    if key not in DEFAULT_PRAYER_KEYS:
-        raise web.HTTPBadRequest(text="Unknown prayer key")
-    setting = await get_prayer_setting(user_id)
-    enabled_keys = {item for item in setting["prayers"].split(",") if item in DEFAULT_PRAYER_KEYS}
-    if bool(body.get("enabled")):
-        enabled_keys.add(key)
-    else:
-        enabled_keys.discard(key)
-    ordered = [item for item in DEFAULT_PRAYER_KEYS if item in enabled_keys]
-    updated = await save_prayer_setting(
-        user_id,
-        0,
-        prayers=",".join(ordered),
-        enabled=bool(ordered),
-    )
-    return web.json_response({"ok": True, "enabled": updated["enabled"], "enabled_keys": ordered}, headers=no_store_headers())
-
-
-async def miniapp_prayer_city(request: web.Request) -> web.Response:
-    user_id = await miniapp_user_id(request)
-    body = await request_json(request)
-    city = normalize_prayer_city(str(body.get("city", "")))
-    if not city:
-        raise web.HTTPBadRequest(text="Unknown city")
-    setting = await save_prayer_setting(user_id, 0, city=city)
-    return web.json_response({"ok": True, "city": setting["city"]}, headers=no_store_headers())
-
-
-async def miniapp_prayer_lead_time(request: web.Request) -> web.Response:
-    user_id = await miniapp_user_id(request)
-    body = await request_json(request)
-    try:
-        minutes = int(body.get("minutes", 0))
-    except (TypeError, ValueError):
-        minutes = 0
-    if minutes not in {0, 5, 10, 15}:
-        raise web.HTTPBadRequest(text="Allowed values: 0, 5, 10, 15")
-    setting = await save_prayer_setting(user_id, 0, minutes_before=minutes)
-    return web.json_response({"ok": True, "minutes_before": setting["minutes_before"]}, headers=no_store_headers())
-
-
 async def start_miniapp_server() -> web.AppRunner:
-    app = web.Application()
-    app.router.add_get("/", miniapp_index)
-    app.router.add_get("/api/dashboard", miniapp_dashboard)
-    app.router.add_post("/api/reminders/delete", miniapp_reminder_delete)
-    app.router.add_post("/api/transactions/delete", miniapp_transaction_delete)
-    app.router.add_post("/api/transactions/update", miniapp_transaction_update)
-    app.router.add_post("/api/settings/daily-limit", miniapp_daily_limit)
-    app.router.add_post("/api/settings/daily-report", miniapp_daily_report_setting)
-    app.router.add_get("/api/export/transactions.csv", miniapp_export_transactions)
-    app.router.add_post("/api/data/clear", miniapp_clear_data)
-    app.router.add_post("/api/prayer/toggle", miniapp_prayer_toggle)
-    app.router.add_post("/api/prayer/key", miniapp_prayer_key)
-    app.router.add_post("/api/prayer/city", miniapp_prayer_city)
-    app.router.add_post("/api/prayer/lead-time", miniapp_prayer_lead_time)
-    app.router.add_get("/{filename:.*\\.(?:css|js|png|jpg|jpeg|webp|svg|ico)}", miniapp_asset)
+    app = web.Application(middlewares=[miniapp_error_middleware])
+    api = MiniAppApi(
+        MiniAppContext(
+            miniapp_dir=MINIAPP_DIR,
+            dashboard_payload=dashboard_payload,
+            save_user_profile_from_webapp_user=save_user_profile_from_webapp_user,
+            admin_user_rows=admin_user_rows,
+            list_audit_logs=list_audit_logs,
+            add_audit_log=add_audit_log,
+            delete_reminder=delete_reminder,
+            get_prayer_setting=get_prayer_setting,
+            save_prayer_setting=save_prayer_setting,
+        )
+    )
+    api.register_routes(app)
     runner = web.AppRunner(app)
     await runner.setup()
     host = os.getenv("MINIAPP_HOST", "127.0.0.1")
@@ -2343,6 +728,146 @@ async def start_miniapp_server() -> web.AppRunner:
     await site.start()
     logging.info("Mini App server started at http://%s:%s", host, port)
     return runner
+
+async def create_db_backup(reason: str = "manual") -> Path:
+    if not DB_PATH.exists():
+        raise FileNotFoundError(f"DB topilmadi: {DB_PATH}")
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    safe_reason = re.sub(r"[^a-zA-Z0-9_-]+", "-", reason).strip("-") or "backup"
+    backup_path = BACKUP_DIR / f"assistant-{now_local().strftime('%Y%m%d-%H%M%S')}-{safe_reason}.db"
+    async with connect_db() as source:
+        async with connect_db(backup_path) as target:
+            await source.backup(target)
+    keep_last = int(os.getenv("BACKUP_KEEP_LAST", "14"))
+    backups = sorted(BACKUP_DIR.glob("assistant-*.db"), key=lambda item: item.stat().st_mtime, reverse=True)
+    for old_backup in backups[keep_last:]:
+        try:
+            old_backup.unlink()
+        except OSError as exc:
+            logging.warning("Eski backup o'chmadi (%s): %s", old_backup, exc)
+    return backup_path
+
+
+async def count_db_rows(query: str, params: tuple = ()) -> int:
+    async with connect_db() as db:
+        rows = await db.execute_fetchall(query, params)
+    return int(rows[0][0]) if rows else 0
+
+
+async def bot_stats_text() -> str:
+    user_count = await count_db_rows(
+        """
+        SELECT COUNT(DISTINCT user_id)
+        FROM (
+            SELECT user_id FROM transactions
+            UNION SELECT user_id FROM card_balances
+            UNION SELECT user_id FROM prayer_settings
+            UNION SELECT user_id FROM reminders
+        )
+        """
+    )
+    tx_count = await count_db_rows("SELECT COUNT(*) FROM transactions")
+    card_count = await count_db_rows("SELECT COUNT(*) FROM card_balances")
+    prayer_enabled = await count_db_rows("SELECT COUNT(*) FROM prayer_settings WHERE enabled = 1")
+    backup_count = len(list(BACKUP_DIR.glob("assistant-*.db"))) if BACKUP_DIR.exists() else 0
+    db_size = DB_PATH.stat().st_size if DB_PATH.exists() else 0
+    return (
+        f"Foydalanuvchilar: {hcode(str(user_count))}\n"
+        f"Operatsiyalar: {hcode(str(tx_count))}\n"
+        f"Kartalar: {hcode(str(card_count))}\n"
+        f"Namoz eslatmasi yoqilgan: {hcode(str(prayer_enabled))}\n"
+        f"Backup soni: {hcode(str(backup_count))}\n"
+        f"DB hajmi: {hcode(str(round(db_size / 1024, 1)) + ' KB')}"
+    )
+
+
+async def service_status(name: str) -> str:
+    if os.name == "nt":
+        return "local"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl",
+            "is-active",
+            name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8)
+        return stdout.decode("utf-8", errors="ignore").strip() or "unknown"
+    except (FileNotFoundError, asyncio.TimeoutError, OSError):
+        return "unknown"
+
+
+async def collect_health() -> dict[str, str]:
+    status: dict[str, str] = {}
+    for service in ["assistant-bot", "assistant-forwarder", "cloudflared"]:
+        status[service] = await service_status(service)
+    try:
+        async with connect_db() as db:
+            rows = await db.execute_fetchall("PRAGMA quick_check")
+        status["database"] = "ok" if rows and rows[0][0] == "ok" else "warning"
+    except Exception:
+        status["database"] = "error"
+    port = int(os.getenv("MINIAPP_PORT", "8080"))
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+            async with session.get(f"http://127.0.0.1:{port}/") as response:
+                status["miniapp"] = "ok" if response.status < 500 else f"http_{response.status}"
+    except Exception:
+        status["miniapp"] = "error"
+    return status
+
+
+def health_text(status: dict[str, str]) -> str:
+    def label(value: str) -> str:
+        return "OK" if value in {"active", "ok", "local"} else "XATO"
+
+    lines = [hbold("Bot holati"), ""]
+    for key, value in status.items():
+        lines.append(f"{key}: {hcode(label(value))} ({escape_html(value)})")
+    return "\n".join(lines)
+
+
+async def notify_admins(bot: Bot, text: str) -> None:
+    for chat_id in admin_user_ids():
+        try:
+            await bot.send_message(chat_id, text)
+        except Exception as exc:
+            logging.warning("Adminga xabar yuborilmadi (%s): %s", chat_id, exc)
+
+
+async def backup_loop(bot: Bot) -> None:
+    interval = int(os.getenv("BACKUP_CHECK_SECONDS", "900"))
+    backup_hour = int(os.getenv("BACKUP_HOUR", "3"))
+    marker = BACKUP_DIR / ".last_backup_date"
+    while True:
+        try:
+            now = now_local()
+            last_date = marker.read_text(encoding="utf-8").strip() if marker.exists() else ""
+            if now.hour >= backup_hour and last_date != now.date().isoformat():
+                backup_path = await create_db_backup("auto")
+                marker.write_text(now.date().isoformat(), encoding="utf-8")
+                await notify_admins(bot, f"{hbold('Backup tayyor')}\n\n{hcode(backup_path.name)}")
+        except Exception as exc:
+            logging.exception("Backup loop failed: %s", exc)
+            await notify_admins(bot, f"{hbold('Backup xatosi')}\n\n{escape_html(exc)}")
+        await asyncio.sleep(max(interval, 300))
+
+
+async def health_monitor_loop(bot: Bot) -> None:
+    interval = int(os.getenv("HEALTH_CHECK_SECONDS", "300"))
+    last_issue_text = ""
+    while True:
+        try:
+            status = await collect_health()
+            issues = {key: value for key, value in status.items() if value not in {"active", "ok", "local"}}
+            issue_text = json.dumps(issues, sort_keys=True)
+            if issues and issue_text != last_issue_text:
+                await notify_admins(bot, health_text(status))
+            last_issue_text = issue_text
+        except Exception as exc:
+            logging.exception("Health monitor failed: %s", exc)
+        await asyncio.sleep(max(interval, 120))
 
 
 async def configure_miniapp_menu_button(bot: Bot, chat_id: int | None = None) -> None:
@@ -2368,6 +893,137 @@ async def configure_known_user_menu_buttons(bot: Bot) -> None:
         chat_ids.add(int(dev_user_id))
     for chat_id in chat_ids:
         await configure_miniapp_menu_button(bot, chat_id)
+
+
+def command_arg_text(command: CommandObject | None) -> str:
+    return (command.args or "").strip() if command else ""
+
+
+def format_transaction_line(row: dict) -> str:
+    sign = "+" if row["type"] == "income" else "-"
+    card = f" *{row['card_last4']}" if row.get("card_last4") else ""
+    return (
+        f"ID {hcode(str(row['id']))}: {sign}{hcode(format_money(row['amount']))} | "
+        f"{escape_html(row['category'])} | {escape_html(row.get('description') or '')}{escape_html(card)}"
+    )
+
+
+async def require_admin(message: Message) -> bool:
+    user_id = user_id_from(message)
+    if is_admin_user(user_id):
+        return True
+    await message.answer(
+        "Bu buyruq faqat admin uchun.\n\n"
+        f"Sizning Telegram ID: {hcode(str(user_id))}",
+        reply_markup=main_keyboard(),
+    )
+    return False
+
+
+async def format_category_limits(user_id: int) -> str:
+    limits = await get_category_limits(user_id)
+    if not limits:
+        return (
+            f"{hbold('Kategoriya limitlari')}\n\n"
+            "Hali limit belgilanmagan.\n"
+            f"Masalan: {hcode('/limit Ovqat 1000000')}"
+        )
+    lines = [hbold("Kategoriya limitlari"), ""]
+    for category, amount in sorted(limits.items()):
+        lines.append(f"- {escape_html(category)}: {hcode(format_money(amount))}")
+    return "\n".join(lines)
+
+
+register_admin_handlers(
+    router,
+    AdminHandlerDeps(
+        main_keyboard=main_keyboard,
+        require_admin=require_admin,
+        user_id_from=user_id_from,
+        command_arg_text=command_arg_text,
+        escape_html=escape_html,
+        collect_health=collect_health,
+        health_text=health_text,
+        bot_stats_text=bot_stats_text,
+        create_db_backup=create_db_backup,
+    ),
+)
+
+
+@router.message(Command("exportcsv"))
+async def finance_export_csv(message: Message) -> None:
+    path = await export_transactions_csv_file(user_id_from(message))
+    await message.answer_document(
+        FSInputFile(path),
+        caption="Moliya CSV export tayyor.",
+        reply_markup=main_keyboard(),
+    )
+
+
+@router.message(Command("undo"))
+async def finance_undo_last(message: Message) -> None:
+    row = await delete_last_transaction(user_id_from(message))
+    if not row:
+        await message.answer("O'chirish uchun operatsiya topilmadi.", reply_markup=main_keyboard())
+        return
+    await message.answer(
+        hbold("Oxirgi operatsiya o'chirildi") + "\n\n"
+        f"{format_transaction_line(row)}\n\n"
+        "Eslatma: karta balansi alohida saqlanadi. Bank aniq balans yuborsa, balans avtomatik yangilanadi.",
+        reply_markup=main_keyboard(),
+    )
+
+
+@router.message(Command("setcat"))
+async def finance_set_category(message: Message, command: CommandObject) -> None:
+    raw = command_arg_text(command)
+    match = re.match(r"(\d+)\s+(.+)", raw)
+    if not match:
+        await message.answer(f"Namuna: {hcode('/setcat 15 Ovqat')}", reply_markup=main_keyboard())
+        return
+    tx_id = int(match.group(1))
+    category = match.group(2).strip()[:60] or "Boshqa"
+    row = await get_transaction_by_id(user_id_from(message), tx_id)
+    if not row:
+        await message.answer("Bu ID bo'yicha operatsiya topilmadi.", reply_markup=main_keyboard())
+        return
+    ok = await update_transaction(
+        user_id_from(message),
+        tx_id,
+        row["type"],
+        int(row["amount"]),
+        category,
+        row.get("description") or category,
+        row["occurred_at"],
+    )
+    await message.answer(
+        f"Kategoriya yangilandi: {hcode(category)}" if ok else "Kategoriya yangilanmadi.",
+        reply_markup=main_keyboard(),
+    )
+
+
+@router.message(Command("limit"))
+async def finance_category_limit(message: Message, command: CommandObject) -> None:
+    raw = command_arg_text(command)
+    match = re.match(r"(.+?)\s+([0-9][0-9\s'.,]*)$", raw)
+    if not match:
+        await message.answer(f"Namuna: {hcode('/limit Ovqat 1000000')}", reply_markup=main_keyboard())
+        return
+    category = match.group(1).strip()[:60] or "Boshqa"
+    amount = clean_amount(match.group(2))
+    await set_category_limit(user_id_from(message), category, amount)
+    if amount <= 0:
+        await message.answer("Limit 0 bo'lsa, signal berilmaydi.", reply_markup=main_keyboard())
+        return
+    await message.answer(
+        f"Limit saqlandi: {escape_html(category)} - {hcode(format_money(amount))}",
+        reply_markup=main_keyboard(),
+    )
+
+
+@router.message(Command("limits"))
+async def finance_limits(message: Message) -> None:
+    await message.answer(await format_category_limits(user_id_from(message)), reply_markup=main_keyboard())
 
 
 @router.message(CommandStart())
@@ -2730,6 +1386,54 @@ async def finance_balances(message: Message) -> None:
     await message.answer(await format_card_balances(user_id_from(message)), reply_markup=finance_keyboard())
 
 
+async def answer_quick_question(message: Message, text: str) -> bool:
+    raw = text.strip().lower()
+    if not raw:
+        return False
+    user_id = user_id_from(message)
+    finance_words = ["hisobot", "xarajat", "chiqim", "kirim", "moliya", "sarfl", "operatsiya", "yozuv"]
+
+    if any(word in raw for word in ["balans", "kartalar", "kartam"]) or (
+        "pul" in raw and any(word in raw for word in ["qancha", "qoldi", "qoldiq"])
+    ):
+        await message.answer(await format_card_balances(user_id), reply_markup=main_keyboard())
+        return True
+
+    if "bugun" in raw and any(word in raw for word in finance_words):
+        await message.answer(await format_report(user_id, "today"), reply_markup=main_keyboard())
+        return True
+
+    if any(word in raw for word in ["hafta", "haftalik"]) and any(word in raw for word in finance_words):
+        await message.answer(await format_report(user_id, "week"), reply_markup=main_keyboard())
+        return True
+
+    if any(word in raw for word in ["oy", "oylik", "may", "aprel"]) and any(word in raw for word in finance_words):
+        await message.answer(await format_report(user_id, "month"), reply_markup=main_keyboard())
+        return True
+
+    if any(word in raw for word in ["oxirgi", "so'nggi", "songgi"]) and any(word in raw for word in ["operatsiya", "yozuv", "tranzaksiya"]):
+        await message.answer(await format_last_transactions(user_id), reply_markup=main_keyboard())
+        return True
+
+    if "limit" in raw and any(word in raw for word in ["ko'r", "kor", "qanaqa", "qancha", "ro'yxat", "royxat"]):
+        await message.answer(await format_category_limits(user_id), reply_markup=main_keyboard())
+        return True
+
+    if any(word in raw for word in ["namoz", "bomdod", "peshin", "asr", "shom", "xufton"]):
+        setting = await get_prayer_setting(user_id, message.chat.id)
+        await message.answer(format_prayer_times(setting["city"]), reply_markup=main_keyboard())
+        return True
+
+    if raw in {"salom", "assalomu alaykum", "assalom alaykum", "hello", "hi"}:
+        await message.answer(
+            "Assalomu alaykum. Bank xabari, eslatma yoki moliya savolini yozing. Mini App uchun /app.",
+            reply_markup=main_keyboard(),
+        )
+        return True
+
+    return False
+
+
 @router.message(F.text)
 async def catch_bank_reminder_or_unknown(message: Message, state: FSMContext) -> None:
     text = message.text or ""
@@ -2775,6 +1479,9 @@ async def catch_bank_reminder_or_unknown(message: Message, state: FSMContext) ->
             "Masalan: ertaga 10:00 yoki 30 daqiqadan keyin.",
             reply_markup=back_keyboard(),
         )
+        return
+
+    if await answer_quick_question(message, text):
         return
 
     await message.answer(
@@ -2853,7 +1560,8 @@ async def main() -> None:
         raise RuntimeError(".env faylda BOT_TOKEN yozilmagan.")
 
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dp = Dispatcher(storage=MemoryStorage())
+    dp = Dispatcher(storage=SQLiteFSMStorage())
+    router.message.outer_middleware(UserProfileMiddleware())
     dp.include_router(router)
 
     await bot.delete_webhook(drop_pending_updates=True)
@@ -2863,13 +1571,24 @@ async def main() -> None:
     reminders_task = asyncio.create_task(reminder_loop(bot))
     prayer_task = asyncio.create_task(prayer_loop(bot))
     daily_report_task = asyncio.create_task(daily_report_loop(bot))
+    backup_task = asyncio.create_task(backup_loop(bot))
+    health_task = asyncio.create_task(health_monitor_loop(bot))
     try:
         await dp.start_polling(bot)
     finally:
         reminders_task.cancel()
         prayer_task.cancel()
         daily_report_task.cancel()
-        await asyncio.gather(reminders_task, prayer_task, daily_report_task, return_exceptions=True)
+        backup_task.cancel()
+        health_task.cancel()
+        await asyncio.gather(
+            reminders_task,
+            prayer_task,
+            daily_report_task,
+            backup_task,
+            health_task,
+            return_exceptions=True,
+        )
         await miniapp_runner.cleanup()
         await bot.session.close()
 

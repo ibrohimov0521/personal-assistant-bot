@@ -1,45 +1,5 @@
 const tg = window.Telegram?.WebApp;
-
-const demoData = {
-  generated_at: new Date().toISOString(),
-  balance_total_text: "0 UZS",
-  balance_total: 0,
-  balances: [],
-  today: { expense_text: "0 UZS", income_text: "0 UZS", net_text: "0 UZS", expense: 0, income: 0, net: 0 },
-  week: { expense_text: "0 UZS", income_text: "0 UZS", net_text: "0 UZS", expense: 0, income: 0 },
-  month: { expense_text: "0 UZS", income_text: "0 UZS", net_text: "0 UZS", expense: 0, income: 0 },
-  categories: [],
-  recent_transactions: [],
-  transactions: [],
-  reminders: [],
-  active_reminders: [],
-  completed_reminders: [],
-  prayer: {
-    city: "Toshkent",
-    enabled: false,
-    enabled_keys: [],
-    minutes_before: 0,
-    source: "Hozircha offline hisoblash",
-    next: { name: "Asr", time: "17:17" },
-    times: [
-      { key: "fajr", name: "Bomdod", time: "03:33", enabled: false, can_notify: true },
-      { key: "sunrise", name: "Quyosh", time: "05:20", enabled: false, can_notify: false },
-      { key: "dhuhr", name: "Peshin", time: "12:20", enabled: false, can_notify: true },
-      { key: "asr", name: "Asr", time: "17:17", enabled: false, can_notify: true },
-      { key: "maghrib", name: "Shom", time: "19:22", enabled: false, can_notify: true },
-      { key: "isha", name: "Xufton", time: "21:01", enabled: false, can_notify: true },
-    ],
-  },
-  settings: {
-    daily_expense_limit: 0,
-    daily_expense_limit_text: "Belgilanmagan",
-    daily_report_enabled: true,
-  },
-  cities: ["Toshkent", "Samarqand", "Buxoro", "Andijon", "Farg'ona", "Namangan"],
-};
-
-let state = clone(demoData);
-let demoMode = false;
+const demoData = window.AssistantDemoData;
 let activeView = "home";
 let transactionFilter = "all";
 let periodFilter = "today";
@@ -111,7 +71,8 @@ async function api(path, options = {}) {
     },
   });
   if (!response.ok) {
-    throw new Error(await response.text());
+    const text = await response.text();
+    throw new Error(`${response.status}: ${text}`);
   }
   return response.json();
 }
@@ -127,7 +88,7 @@ async function loadDashboard() {
     state = clone(demoData);
     demoMode = true;
     setAuthNotice(true);
-    showToast("Telegram Mini App auth topilmadi");
+    showToast(String(error.message || error).includes("401") ? "Telegram Mini App auth topilmadi" : "Mini App ma'lumot yuklay olmadi");
   } finally {
     window.setTimeout(() => $("refreshButton").classList.remove("spin"), 380);
   }
@@ -136,6 +97,9 @@ async function loadDashboard() {
 
 function setView(view) {
   if (!view) return;
+  if (view === "admin" && !state.is_admin) {
+    view = "home";
+  }
   activeView = view;
   document.querySelectorAll(".view").forEach((panel) => {
     panel.classList.toggle("active", panel.dataset.view === view);
@@ -297,6 +261,7 @@ function renderFinance() {
     state.settings?.daily_report_enabled ? "Kunlik hisobot yoqilgan" : "Kunlik hisobot o'chirilgan";
   renderTransactions();
   renderCategories();
+  renderCategoryLimits();
   renderSavings();
   renderBalances();
   renderSignals();
@@ -338,6 +303,32 @@ function renderCategories() {
           <div class="item-meta">${item.amount_text}</div>
         </div>
         <div class="bar"><span style="width:${width}%"></span></div>
+      </article>`,
+    );
+  });
+}
+
+function renderCategoryLimits() {
+  const limits = state.category_limits || [];
+  $("categoryLimitSummary").textContent = `${limits.length} ta`;
+  const list = $("categoryLimitList");
+  list.innerHTML = "";
+  if (!limits.length) {
+    list.innerHTML = `<div class="empty">Kategoriya limiti yo'q. Masalan, Ovqat uchun oylik limit belgilang.</div>`;
+    return;
+  }
+  limits.forEach((item, index) => {
+    list.insertAdjacentHTML(
+      "beforeend",
+      `<article class="list-item compact" style="animation-delay:${index * 35}ms">
+        <div class="item-icon"><i data-lucide="gauge"></i></div>
+        <div>
+          <div class="item-title">${escapeHtml(item.category)}</div>
+          <div class="item-meta">Oylik limit: ${escapeHtml(item.amount_text)}</div>
+        </div>
+        <button class="icon-button danger small" data-delete-category-limit="${escapeHtml(item.category)}" type="button" aria-label="Limitni o'chirish">
+          <i data-lucide="trash-2"></i>
+        </button>
       </article>`,
     );
   });
@@ -394,6 +385,9 @@ function renderSignals() {
   } else if (dailyLimit > 0 && todayExpense >= dailyLimit * 0.8) {
     signals.push(["bell-ring", "Limitga yaqin", `Bugungi xarajat limitning katta qismiga yetdi: ${state.today.expense_text}.`]);
   }
+  (state.finance_warnings || []).forEach((item) => {
+    signals.push([item.icon || "bell-ring", item.title || "Kategoriya limiti", item.text || "Limitga yaqin."]);
+  });
   if (expense > income && income > 0) signals.push(["triangle-alert", "Chiqim yuqori", "Bu oy xarajat kirimdan oshgan."]);
   if (expense === 0) signals.push(["sparkles", "Xarajat yo'q", "Xabarlar kelishi bilan avtomatik tahlil boshlanadi."]);
   if (income > expense && expense > 0) signals.push(["badge-check", "Holat yaxshi", "Kirim chiqimdan yuqori, jamg'arma uchun imkon bor."]);
@@ -472,6 +466,104 @@ function renderProfile() {
   $("connectionStatus").textContent = demoMode ? "Demo ma'lumot" : "Himoyalangan";
 }
 
+function renderAdminVisibility() {
+  document.querySelectorAll("[data-admin-only]").forEach((element) => {
+    element.hidden = !state.is_admin;
+  });
+  if (!state.is_admin && activeView === "admin") {
+    setView("home");
+  }
+}
+
+function userStatusBadges(item) {
+  const badges = [];
+  if (item.admin) badges.push(`<span class="status-pill admin">Admin</span>`);
+  if (item.allowed) badges.push(`<span class="status-pill allowed">Ruxsat</span>`);
+  if (item.blocked) badges.push(`<span class="status-pill blocked">Blok</span>`);
+  if (!badges.length) badges.push(`<span class="status-pill muted">Noma'lum</span>`);
+  return badges.join("");
+}
+
+function adminUserHtml(item, index) {
+  const username = item.username_text || (item.username ? `@${item.username}` : "Ko'rsatilmagan");
+  const updated = item.updated_at_text ? formatDateTime(item.updated_at_text) : "Hali ko'rinmagan";
+  const action = item.admin
+    ? `<button class="ghost-action" disabled type="button"><i data-lucide="shield-check"></i><span>Admin</span></button>`
+    : item.blocked
+      ? `<button class="ghost-action" data-admin-unblock="${item.user_id}" type="button"><i data-lucide="unlock"></i><span>Blokdan chiqarish</span></button>`
+      : `<button class="ghost-action danger" data-admin-block="${item.user_id}" type="button"><i data-lucide="ban"></i><span>Bloklash</span></button>`;
+  return `<article class="admin-user-card" style="animation-delay:${index * 35}ms">
+    <div class="admin-user-head">
+      <div class="avatar mini">${escapeHtml(item.name || "U").charAt(0).toUpperCase()}</div>
+      <div>
+        <div class="item-title">${escapeHtml(item.name || `User ${item.user_id}`)}</div>
+        <div class="item-meta">${escapeHtml(username)} - ID ${escapeHtml(item.user_id)}</div>
+      </div>
+      <div class="status-row">${userStatusBadges(item)}</div>
+    </div>
+    <div class="admin-user-grid">
+      <div><span>Balans</span><strong>${escapeHtml(item.balance_text || "0 so'm")}</strong></div>
+      <div><span>Chiqim</span><strong>${escapeHtml(item.expense_text || "0 so'm")}</strong></div>
+      <div><span>Operatsiya</span><strong>${escapeHtml(item.transactions || 0)}</strong></div>
+      <div><span>Yangilangan</span><strong>${escapeHtml(updated)}</strong></div>
+    </div>
+    <div class="admin-actions">${action}</div>
+  </article>`;
+}
+
+function renderAdmin() {
+  renderAdminVisibility();
+  if (!state.is_admin) return;
+  const users = state.admin?.users || [];
+  const audits = state.admin?.audit_logs || [];
+  $("adminSummary").textContent = `${state.admin?.allowed_count || 0} ruxsat, ${state.admin?.blocked_count || 0} blok`;
+  const list = $("adminUserList");
+  list.innerHTML = "";
+  if (!users.length) {
+    list.innerHTML = `<div class="empty">Hali userlar ko'rinmagan. User botga /start yoki /id yuborganda profili saqlanadi.</div>`;
+  } else {
+    users.forEach((item, index) => {
+      list.insertAdjacentHTML("beforeend", adminUserHtml(item, index));
+    });
+  }
+
+  const auditList = $("adminAuditList");
+  auditList.innerHTML = "";
+  if (!audits.length) {
+    auditList.innerHTML = `<div class="empty">Audit tarixi hali bo'sh.</div>`;
+  } else {
+    audits.forEach((item, index) => {
+      const target = item.target_user_id ? ` -> ${item.target_user_id}` : "";
+      auditList.insertAdjacentHTML(
+        "beforeend",
+        `<article class="list-item compact" style="animation-delay:${index * 35}ms">
+          <div class="item-icon"><i data-lucide="history"></i></div>
+          <div>
+            <div class="item-title">${escapeHtml(item.action)}${escapeHtml(target)}</div>
+            <div class="item-meta">${formatDateTime(item.created_at)} - admin ${escapeHtml(item.actor_user_id)} ${item.details ? "- " + escapeHtml(item.details) : ""}</div>
+          </div>
+        </article>`,
+      );
+    });
+  }
+}
+
+async function reloadAdminUsers() {
+  if (demoMode || !state.is_admin) {
+    showToast("Admin panel Telegram ichida ishlaydi");
+    return;
+  }
+  const payload = await api("/api/admin/users", { method: "GET" });
+  state.admin = {
+    users: payload.users || [],
+    audit_logs: payload.audit_logs || [],
+    allowed_count: payload.allowed_count || 0,
+    blocked_count: payload.blocked_count || 0,
+  };
+  renderAdmin();
+  if (window.lucide) lucide.createIcons();
+}
+
 function renderPrayer() {
   $("prayerCityLabel").textContent = state.prayer.city;
   $("prayerSource").textContent = state.prayer.source || "Offline hisoblash";
@@ -511,21 +603,38 @@ function renderPrayer() {
 }
 
 function render() {
+  renderAdminVisibility();
   renderHero();
   renderOverview();
   renderFinance();
   renderExtras();
   renderProfile();
+  renderAdmin();
   setTransactionFilter(transactionFilter);
   if (window.lucide) lucide.createIcons();
 }
 
 function openTransactionEditor(item) {
+  $("transactionModalTitle").textContent = "Operatsiyani tahrirlash";
   $("transactionIdInput").value = item.id;
   $("transactionTypeInput").value = item.type === "income" ? "income" : "expense";
   $("transactionAmountInput").value = item.amount;
   $("transactionCategoryInput").value = item.category || "Boshqa";
   $("transactionDescriptionInput").value = item.description || item.category || "Operatsiya";
+  $("transactionCardInput").value = item.card_last4 || "";
+  $("transactionModal").hidden = false;
+  document.body.classList.add("modal-open");
+  window.setTimeout(() => $("transactionAmountInput").focus(), 80);
+}
+
+function openNewTransactionEditor() {
+  $("transactionModalTitle").textContent = "Operatsiya qo'shish";
+  $("transactionIdInput").value = "";
+  $("transactionTypeInput").value = "expense";
+  $("transactionAmountInput").value = "";
+  $("transactionCategoryInput").value = "Boshqa";
+  $("transactionDescriptionInput").value = "";
+  $("transactionCardInput").value = "";
   $("transactionModal").hidden = false;
   document.body.classList.add("modal-open");
   window.setTimeout(() => $("transactionAmountInput").focus(), 80);
@@ -622,10 +731,78 @@ document.addEventListener("click", async (event) => {
     });
     await loadDashboard();
     showToast("Ma'lumotlar tozalandi");
+    return;
+  }
+
+  const deleteCategoryLimitButton = event.target.closest("[data-delete-category-limit]");
+  if (deleteCategoryLimitButton) {
+    const category = deleteCategoryLimitButton.dataset.deleteCategoryLimit;
+    if (!category) return;
+    if (demoMode) {
+      state.category_limits = (state.category_limits || []).filter((item) => item.category !== category);
+      renderFinance();
+      showToast("Telegram orqali ochilganda saqlanadi");
+      return;
+    }
+    await api("/api/category-limits/delete", {
+      method: "POST",
+      body: JSON.stringify({ category }),
+    });
+    await loadDashboard();
+    showToast("Limit o'chirildi");
+    return;
+  }
+
+  const blockButton = event.target.closest("[data-admin-block]");
+  if (blockButton) {
+    const userId = Number(blockButton.dataset.adminBlock);
+    if (!userId || !window.confirm(`${userId} bloklansinmi?`)) return;
+    await api("/api/admin/block", {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId }),
+    });
+    await reloadAdminUsers();
+    showToast("User bloklandi");
+    return;
+  }
+
+  const unblockButton = event.target.closest("[data-admin-unblock]");
+  if (unblockButton) {
+    const userId = Number(unblockButton.dataset.adminUnblock);
+    if (!userId) return;
+    await api("/api/admin/unblock", {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId }),
+    });
+    await reloadAdminUsers();
+    showToast("User blokdan chiqarildi");
   }
 });
 
 $("refreshButton").addEventListener("click", loadDashboard);
+
+$("openNewTransactionButton").addEventListener("click", openNewTransactionEditor);
+
+$("adminRefreshButton").addEventListener("click", reloadAdminUsers);
+
+$("adminAllowButton").addEventListener("click", async () => {
+  const userId = Number($("adminUserInput").value.trim());
+  if (!userId) {
+    showToast("User ID yozing");
+    return;
+  }
+  if (demoMode || !state.is_admin) {
+    showToast("Admin panel Telegram ichida ishlaydi");
+    return;
+  }
+  const result = await api("/api/admin/allow", {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId }),
+  });
+  $("adminUserInput").value = "";
+  await reloadAdminUsers();
+  showToast(result.message || "User qo'shildi");
+});
 
 $("completedToggleButton").addEventListener("click", () => {
   if ((state.completed_reminders || []).length <= 3) return;
@@ -644,27 +821,34 @@ $("transactionForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const id = Number($("transactionIdInput").value);
   const body = {
-    id,
     type: $("transactionTypeInput").value,
     amount: $("transactionAmountInput").value,
     category: $("transactionCategoryInput").value,
     description: $("transactionDescriptionInput").value,
-    occurred_at: (state.transactions || []).find((row) => Number(row.id) === id)?.occurred_at,
+    card_last4: $("transactionCardInput").value,
   };
+  if (id) body.id = id;
+  body.occurred_at = id
+    ? (state.transactions || []).find((row) => Number(row.id) === id)?.occurred_at
+    : new Date().toISOString();
   if (demoMode) {
-    state.transactions = state.transactions.map((item) => (Number(item.id) === id ? { ...item, ...body, amount: Number(body.amount), amount_text: `${body.amount} so'm` } : item));
+    if (id) {
+      state.transactions = state.transactions.map((item) => (Number(item.id) === id ? { ...item, ...body, amount: Number(body.amount), amount_text: `${body.amount} so'm` } : item));
+    } else {
+      state.transactions.unshift({ ...body, id: Date.now(), amount: Number(body.amount), amount_text: `${body.amount} so'm`, currency: "UZS" });
+    }
     closeTransactionEditor();
     render();
     showToast("Telegram orqali ochilganda saqlanadi");
     return;
   }
-  await api("/api/transactions/update", {
+  await api(id ? "/api/transactions/update" : "/api/transactions/create", {
     method: "POST",
     body: JSON.stringify(body),
   });
   closeTransactionEditor();
   await loadDashboard();
-  showToast("Operatsiya yangilandi");
+  showToast(id ? "Operatsiya yangilandi" : "Operatsiya qo'shildi");
 });
 
 $("saveDailyLimitButton").addEventListener("click", async () => {
@@ -682,6 +866,33 @@ $("saveDailyLimitButton").addEventListener("click", async () => {
   });
   await loadDashboard();
   showToast("Kunlik limit saqlandi");
+});
+
+$("saveCategoryLimitButton").addEventListener("click", async () => {
+  const category = $("categoryLimitNameInput").value.trim();
+  const amount = $("categoryLimitAmountInput").value.trim();
+  if (!category || !amount) {
+    showToast("Kategoriya va limit yozing");
+    return;
+  }
+  if (demoMode) {
+    const amountText = `${amount.replace(/\D/g, "") || 0} so'm`;
+    state.category_limits = [
+      ...(state.category_limits || []).filter((item) => item.category.toLowerCase() !== category.toLowerCase()),
+      { category, amount: Number(amount.replace(/\D/g, "")) || 0, amount_text: amountText },
+    ];
+    renderFinance();
+    showToast("Telegram orqali ochilganda saqlanadi");
+    return;
+  }
+  await api("/api/category-limits/set", {
+    method: "POST",
+    body: JSON.stringify({ category, amount }),
+  });
+  $("categoryLimitNameInput").value = "";
+  $("categoryLimitAmountInput").value = "";
+  await loadDashboard();
+  showToast("Kategoriya limiti saqlandi");
 });
 
 $("dailyReportToggleButton").addEventListener("click", async () => {
