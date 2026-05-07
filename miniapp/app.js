@@ -136,6 +136,7 @@ function setView(view) {
   }
   if (activeView !== view) previousView = activeView;
   activeView = view;
+  document.body.dataset.activeView = view;
   document.querySelectorAll(".view").forEach((panel) => {
     panel.classList.toggle("active", panel.dataset.view === view);
   });
@@ -146,6 +147,14 @@ function setView(view) {
     requestAnimationFrame(() => initCardWheel());
   } else {
     teardownCardWheel();
+  }
+  // Reset hero compact when leaving home so the morph transition does not
+  // play in the short / hidden variants where the same elements are styled
+  // by the per-view rules instead.
+  if (view !== "home") {
+    heroIsCompact = false;
+    document.querySelector(".hero")?.classList.remove("compact");
+    window.scrollTo({ top: 0, behavior: "auto" });
   }
   if (window.lucide) lucide.createIcons();
 }
@@ -209,10 +218,10 @@ function applyTheme(mode) {
   const label = $("themeModeLabel");
   if (label) label.textContent = nextMode === "light" ? "Kunduzgi rejim" : "Tun rejimi";
   if (tg?.setHeaderColor) {
-    tg.setHeaderColor(nextMode === "light" ? "#f3f5f9" : "#07080c");
+    tg.setHeaderColor(nextMode === "light" ? "#e6eaf1" : "#07080c");
   }
   if (tg?.setBackgroundColor) {
-    tg.setBackgroundColor(nextMode === "light" ? "#f3f5f9" : "#07080c");
+    tg.setBackgroundColor(nextMode === "light" ? "#e6eaf1" : "#07080c");
   }
 }
 
@@ -232,6 +241,11 @@ function renderHeroAvatar() {
   const user = tg?.initDataUnsafe?.user || {};
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ") || "Foydalanuvchi";
   const letter = (fullName.trim().charAt(0) || "F").toUpperCase();
+
+  const usernameEl = $("heroUsername");
+  if (usernameEl) {
+    usernameEl.textContent = user.username ? `@${user.username}` : fullName;
+  }
   button.textContent = "";
   if (user.photo_url) {
     const img = document.createElement("img");
@@ -1318,4 +1332,5 @@ if (tg) {
 }
 
 applyTheme(localStorage.getItem("assistant_theme") || "dark");
+document.body.dataset.activeView = activeView;
 loadDashboard();

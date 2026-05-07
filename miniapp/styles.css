@@ -69,6 +69,79 @@
   opacity: 0.2;
 }
 
+/* Per-view hero variants:
+   - home: full hero with balance
+   - finance / extras / cards: short hero with username (no balance, no title)
+   - profile / admin: hero hidden entirely */
+
+body[data-active-view="profile"] .hero,
+body[data-active-view="admin"] .hero {
+  display: none;
+}
+
+body[data-active-view="finance"] .hero,
+body[data-active-view="extras"] .hero,
+body[data-active-view="cards"] .hero {
+  padding: 12px 18px;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.32);
+}
+
+body[data-active-view="finance"] .hero .hero-aurora,
+body[data-active-view="extras"] .hero .hero-aurora,
+body[data-active-view="cards"] .hero .hero-aurora {
+  opacity: 0.18;
+}
+
+body[data-active-view="finance"] .hero .hero-text,
+body[data-active-view="extras"] .hero .hero-text,
+body[data-active-view="cards"] .hero .hero-text,
+body[data-active-view="finance"] .hero .balance-hero,
+body[data-active-view="extras"] .hero .balance-hero,
+body[data-active-view="cards"] .hero .balance-hero {
+  display: none;
+}
+
+body[data-active-view="finance"] .hero .hero-top,
+body[data-active-view="extras"] .hero .hero-top,
+body[data-active-view="cards"] .hero .hero-top {
+  margin-bottom: 0;
+}
+
+body[data-active-view="finance"] .hero .hero-avatar,
+body[data-active-view="extras"] .hero .hero-avatar,
+body[data-active-view="cards"] .hero .hero-avatar {
+  width: 38px;
+  height: 38px;
+  font-size: 15px;
+}
+
+.hero-username {
+  display: none;
+  flex: 1;
+  min-width: 0;
+  margin: 0 12px;
+  text-align: center;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body[data-active-view="finance"] .hero .hero-username,
+body[data-active-view="extras"] .hero .hero-username,
+body[data-active-view="cards"] .hero .hero-username {
+  display: block;
+}
+
+body[data-active-view="profile"] .app-shell,
+body[data-active-view="admin"] .app-shell {
+  padding-top: 28px;
+}
+
 .hero-aurora {
   position: absolute;
   inset: -40% -10% auto -10%;
@@ -1984,11 +2057,14 @@ body.light .toast {
     font-size: 28px;
   }
 
-  .quick-grid,
   .summary-grid,
   .card-grid,
   .prayer-grid {
     grid-template-columns: 1fr;
+  }
+
+  .quick-grid {
+    gap: 8px;
   }
 
   .summary-grid {
