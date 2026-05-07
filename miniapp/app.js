@@ -1276,6 +1276,38 @@ window.addEventListener("resize", () => {
   if (activeView === "cards") applyCardWheelTransforms();
 });
 
+/* Sticky hero collapse — shrinks the header when the page scrolls past the
+   threshold and restores it when the user scrolls back to the top. Hysteresis
+   prevents rapid toggling at the boundary. */
+let heroIsCompact = false;
+let heroScrollPending = false;
+const HERO_COMPACT_ENTER = 56;
+const HERO_COMPACT_EXIT = 32;
+
+function applyHeroState() {
+  const y = window.scrollY || window.pageYOffset || 0;
+  let want = heroIsCompact;
+  if (!heroIsCompact && y > HERO_COMPACT_ENTER) want = true;
+  else if (heroIsCompact && y < HERO_COMPACT_EXIT) want = false;
+  if (want !== heroIsCompact) {
+    heroIsCompact = want;
+    document.querySelector(".hero")?.classList.toggle("compact", want);
+  }
+}
+
+window.addEventListener(
+  "scroll",
+  () => {
+    if (heroScrollPending) return;
+    heroScrollPending = true;
+    requestAnimationFrame(() => {
+      heroScrollPending = false;
+      applyHeroState();
+    });
+  },
+  { passive: true },
+);
+
 if (tg) {
   tg.ready();
   tg.expand();

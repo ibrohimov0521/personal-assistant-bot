@@ -36,7 +36,9 @@
    ────────────────────────────────────────────────────────── */
 
 .hero {
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 5;
   padding: 22px 22px 24px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -47,6 +49,24 @@
     var(--panel);
   box-shadow: var(--shadow-md);
   overflow: hidden;
+  transition:
+    padding 0.36s var(--ease-out),
+    border-radius 0.36s var(--ease-out),
+    box-shadow 0.36s var(--ease-out);
+}
+
+/* Compact hero state — applied via JS when the user scrolls past the threshold.
+   The hero stays sticky at the top while the inner block compresses into a
+   slim toolbar showing only the avatar, balance amount, and refresh button. */
+.hero.compact {
+  padding-top: 12px;
+  padding-bottom: 14px;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.38);
+}
+
+.hero.compact .hero-aurora {
+  opacity: 0.2;
 }
 
 .hero-aurora {
@@ -73,6 +93,11 @@ body.light .hero-aurora {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
+  transition: margin-bottom 0.36s var(--ease-out);
+}
+
+.hero.compact .hero-top {
+  margin-bottom: 10px;
 }
 
 .hero-text {
@@ -80,6 +105,18 @@ body.light .hero-aurora {
   z-index: 1;
   display: grid;
   gap: 4px;
+  max-height: 220px;
+  opacity: 1;
+  transition:
+    max-height 0.36s var(--ease-out),
+    opacity 0.22s var(--ease-out),
+    margin 0.36s var(--ease-out);
+}
+
+.hero.compact .hero-text {
+  max-height: 0;
+  opacity: 0;
+  margin: 0;
 }
 
 .hero-avatar {
@@ -99,7 +136,17 @@ body.light .hero-aurora {
   cursor: pointer;
   overflow: hidden;
   box-shadow: var(--shadow-md), inset 0 0 0 2px rgba(255, 255, 255, 0.18);
-  transition: transform 0.22s var(--ease-out);
+  transition:
+    transform 0.22s var(--ease-out),
+    width 0.36s var(--ease-out),
+    height 0.36s var(--ease-out),
+    font-size 0.36s var(--ease-out);
+}
+
+.hero.compact .hero-avatar {
+  width: 38px;
+  height: 38px;
+  font-size: 15px;
 }
 
 .hero-avatar::after {
@@ -173,7 +220,19 @@ h1 {
   color: var(--text);
   text-align: left;
   cursor: pointer;
-  transition: transform 0.25s var(--ease-out), border-color 0.25s var(--ease-out), background 0.25s var(--ease-out);
+  transition:
+    transform 0.25s var(--ease-out),
+    border-color 0.25s var(--ease-out),
+    background 0.25s var(--ease-out),
+    margin-top 0.36s var(--ease-out),
+    padding 0.36s var(--ease-out);
+}
+
+.hero.compact .balance-hero {
+  margin-top: 0;
+  padding: 8px 14px;
+  background: transparent;
+  border-color: transparent;
 }
 
 .balance-hero:hover {
@@ -196,6 +255,15 @@ h1 {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  max-height: 30px;
+  overflow: hidden;
+  transition: max-height 0.36s var(--ease-out), opacity 0.22s var(--ease-out);
+}
+
+.hero.compact .balance-hero-top {
+  max-height: 0;
+  opacity: 0;
+  margin: 0;
 }
 
 .balance-hero-cta {
@@ -223,11 +291,24 @@ h1 {
   font-weight: 800;
   line-height: 1.05;
   letter-spacing: -0.02em;
+  transition: font-size 0.36s var(--ease-out);
+}
+
+.hero.compact .balance-hero strong {
+  font-size: 22px;
 }
 
 .balance-hero small {
   color: var(--muted-2);
   font-size: 12px;
+  max-height: 18px;
+  overflow: hidden;
+  transition: max-height 0.36s var(--ease-out), opacity 0.22s var(--ease-out);
+}
+
+.hero.compact .balance-hero small {
+  max-height: 0;
+  opacity: 0;
 }
 
 /* ──────────────────────────────────────────────────────────
