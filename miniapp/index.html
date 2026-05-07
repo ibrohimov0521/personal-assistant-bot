@@ -12,22 +12,25 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./theme.css?v=20" />
-    <link rel="stylesheet" href="./styles.css?v=20" />
+    <link rel="stylesheet" href="./theme.css?v=21" />
+    <link rel="stylesheet" href="./styles.css?v=21" />
   </head>
   <body>
     <main class="app-shell">
       <header class="hero">
         <div class="hero-aurora"></div>
-        <div class="hero-row">
-          <div class="hero-text">
-            <p class="eyebrow">Assistant</p>
-            <h1>Bugungi nazorat</h1>
-            <p class="subtitle">Moliya, eslatma va namoz bir joyda.</p>
-          </div>
+        <div class="hero-top">
+          <button class="hero-avatar" id="heroAvatarButton" type="button" aria-label="Profil">
+            <span class="hero-avatar-letter" id="heroAvatarLetter">F</span>
+          </button>
           <button class="icon-button" id="refreshButton" type="button" aria-label="Yangilash">
             <i data-lucide="refresh-cw"></i>
           </button>
+        </div>
+        <div class="hero-text">
+          <p class="eyebrow">Assistant</p>
+          <h1>Bugungi nazorat</h1>
+          <p class="subtitle">Moliya, eslatma va namoz bir joyda.</p>
         </div>
         <button class="balance-hero" id="heroBalanceCard" type="button" aria-label="Kartalarni ochish">
           <div class="balance-hero-top">
@@ -87,7 +90,7 @@
             <i data-lucide="chevron-right"></i>
           </button>
         </section>
-        <div id="reminderList" class="stack-list"></div>
+        <div id="reminderList" class="pile-stack"></div>
 
         <section class="section-head">
           <h2>Oxirgi operatsiyalar</h2>
@@ -169,13 +172,13 @@
           <h2>Operatsiyalar</h2>
           <span id="transactionFilterLabel">Barchasi</span>
         </section>
-        <div id="transactionList" class="stack-list"></div>
-        <div class="expand-row" id="transactionExpandRow" hidden>
+        <div class="expand-row top" id="transactionExpandRow" hidden>
           <button class="expand-button" id="transactionExpandButton" type="button">
             <span id="transactionExpandLabel">Kengaytirish</span>
             <i data-lucide="chevron-down"></i>
           </button>
         </div>
+        <div id="transactionList" class="stack-list"></div>
 
         <section class="section-head">
           <h2>Kategoriyalar</h2>
@@ -286,14 +289,14 @@
               <button class="segment" data-lead-minutes="15" type="button">15</button>
             </div>
           </div>
-          <div id="prayerTimes" class="prayer-grid"></div>
+          <div id="prayerTimes" class="pile-stack prayer-stack"></div>
         </section>
 
         <section class="section-head">
           <h2>Aktiv eslatmalar</h2>
           <span id="activeReminderCount">0 ta</span>
         </section>
-        <div id="activeReminderList" class="stack-list"></div>
+        <div id="activeReminderList" class="pile-stack"></div>
 
         <section class="section-head">
           <h2>Yakunlangan eslatmalar</h2>
@@ -301,7 +304,7 @@
             <span id="completedReminderCount">0 ta</span>
           </button>
         </section>
-        <div id="completedReminderList" class="stack-list"></div>
+        <div id="completedReminderList" class="pile-stack"></div>
       </section>
 
       <section class="view" id="view-profile" data-view="profile">
@@ -467,7 +470,7 @@
 
       <div class="toast" id="toast" role="status"></div>
     </main>
-    <script src="./demo-data.js?v=20"></script>
-    <script src="./app.js?v=20"></script>
+    <script src="./demo-data.js?v=21"></script>
+    <script src="./app.js?v=21"></script>
   </body>
 </html>

@@ -223,6 +223,35 @@ function renderHero() {
   $("generatedAt").textContent = `Yangilandi: ${formatDateTime(state.generated_at)}`;
   $("homeIncome").textContent = state.month?.income_text || "0 UZS";
   $("homeExpense").textContent = state.month?.expense_text || "0 UZS";
+  renderHeroAvatar();
+}
+
+function renderHeroAvatar() {
+  const button = $("heroAvatarButton");
+  if (!button) return;
+  const user = tg?.initDataUnsafe?.user || {};
+  const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ") || "Foydalanuvchi";
+  const letter = (fullName.trim().charAt(0) || "F").toUpperCase();
+  button.textContent = "";
+  if (user.photo_url) {
+    const img = document.createElement("img");
+    img.alt = "";
+    img.referrerPolicy = "no-referrer";
+    img.addEventListener("error", () => {
+      const span = document.createElement("span");
+      span.className = "hero-avatar-letter";
+      span.textContent = letter;
+      button.textContent = "";
+      button.append(span);
+    });
+    img.src = user.photo_url;
+    button.append(img);
+  } else {
+    const span = document.createElement("span");
+    span.className = "hero-avatar-letter";
+    span.textContent = letter;
+    button.append(span);
+  }
 }
 
 function renderOverview() {
@@ -815,18 +844,32 @@ function renderPrayer() {
   button.classList.toggle("off", state.prayer?.enabled);
   button.querySelector("span").textContent = state.prayer?.enabled ? "Barchasini o'chirish" : "Barchasini yoqish";
 
+  const prayerIcons = {
+    fajr: "sunrise",
+    sunrise: "sun-medium",
+    dhuhr: "sun",
+    asr: "cloud-sun",
+    maghrib: "sunset",
+    isha: "moon-star",
+  };
   const grid = $("prayerTimes");
   grid.innerHTML = "";
-  (state.prayer?.times || []).forEach((item) => {
+  (state.prayer?.times || []).forEach((item, index) => {
     const enabled = Boolean(item.enabled);
     const disabled = !item.can_notify;
+    const icon = prayerIcons[item.key] || "sun";
+    const meta = disabled ? "Ma'lumot uchun" : enabled ? "Eslatma yoqilgan" : "Eslatma o'chirilgan";
     grid.insertAdjacentHTML(
       "beforeend",
-      `<article class="prayer-time ${enabled ? "enabled" : ""}">
-        <span>${escapeHtml(item.name)}</span>
-        <strong>${escapeHtml(item.time)}</strong>
+      `<article class="prayer-row ${enabled ? "enabled" : ""}" style="animation-delay:${index * 28}ms">
+        <div class="item-icon"><i data-lucide="${icon}"></i></div>
+        <div>
+          <div class="item-title">${escapeHtml(item.name)}</div>
+          <div class="item-meta">${meta}</div>
+        </div>
+        <div class="prayer-row-time">${escapeHtml(item.time)}</div>
         <button class="toggle-mini" data-prayer-key="${item.key}" type="button" ${disabled ? "disabled" : ""}>
-          ${disabled ? "Ma'lumot" : enabled ? "Yoqilgan" : "O'chirilgan"}
+          ${disabled ? "—" : enabled ? "Yoqilgan" : "O'chirilgan"}
         </button>
       </article>`,
     );
@@ -909,6 +952,10 @@ document.querySelectorAll("[data-period-filter]").forEach((button) => {
 
 $("heroBalanceCard").addEventListener("click", () => {
   setView("cards");
+});
+
+$("heroAvatarButton").addEventListener("click", () => {
+  setView("profile");
 });
 
 $("cardsBackButton").addEventListener("click", () => {

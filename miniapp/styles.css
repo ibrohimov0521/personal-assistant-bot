@@ -8,7 +8,10 @@
   min-height: 100vh;
   margin: 0 auto;
   padding: 22px 20px 110px;
+  /* `clip` avoids creating a scroll container, so position: sticky inside
+     pile-stack works against the viewport. `hidden` is the fallback. */
   overflow-x: hidden;
+  overflow-x: clip;
 }
 
 .view {
@@ -62,18 +65,71 @@ body.light .hero-aurora {
   opacity: 0.4;
 }
 
-.hero-row {
+.hero-top {
   position: relative;
   z-index: 1;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .hero-text {
+  position: relative;
+  z-index: 1;
   display: grid;
   gap: 4px;
+}
+
+.hero-avatar {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border: 0;
+  border-radius: 50%;
+  background:
+    conic-gradient(from 200deg, #00d9a0 0deg, #6ea8fe 130deg, #b47bff 230deg, #00d9a0 360deg);
+  display: grid;
+  place-items: center;
+  color: #08120f;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: var(--shadow-md), inset 0 0 0 2px rgba(255, 255, 255, 0.18);
+  transition: transform 0.22s var(--ease-out);
+}
+
+.hero-avatar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.28), transparent 55%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.hero-avatar:hover {
+  transform: scale(1.04);
+}
+
+.hero-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: inherit;
+  z-index: 0;
+}
+
+.hero-avatar-letter {
+  position: relative;
+  z-index: 2;
 }
 
 .eyebrow {
@@ -617,12 +673,102 @@ body.light .empty {
   background: rgba(13, 23, 41, 0.02);
 }
 
+/* Pile-up sticky stack — items overlap each other as the page scrolls.
+   Each successive child has a slightly larger `top` and higher `z-index`
+   so later items cover earlier ones during scroll, creating a deck-of-cards
+   pile effect. */
+
+.pile-stack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.pile-stack > * {
+  position: sticky;
+  flex-shrink: 0;
+  margin: 0;
+  background: var(--panel);
+  transition: transform 0.22s var(--ease-out);
+}
+
+.pile-stack > *:nth-child(1)  { top: 0;    z-index: 1;  }
+.pile-stack > *:nth-child(2)  { top: 6px;  z-index: 2;  }
+.pile-stack > *:nth-child(3)  { top: 12px; z-index: 3;  }
+.pile-stack > *:nth-child(4)  { top: 18px; z-index: 4;  }
+.pile-stack > *:nth-child(5)  { top: 24px; z-index: 5;  }
+.pile-stack > *:nth-child(6)  { top: 30px; z-index: 6;  }
+.pile-stack > *:nth-child(7)  { top: 36px; z-index: 7;  }
+.pile-stack > *:nth-child(8)  { top: 42px; z-index: 8;  }
+.pile-stack > *:nth-child(9)  { top: 48px; z-index: 9;  }
+.pile-stack > *:nth-child(10) { top: 54px; z-index: 10; }
+.pile-stack > *:nth-child(n+11) { top: 60px; z-index: 11; }
+
+/* Empty placeholder inside pile-stack should not stick. */
+.pile-stack > .empty {
+  position: relative;
+  top: auto !important;
+  z-index: 0 !important;
+}
+
+/* Prayer row — list-item layout for stacked prayer times. */
+
+.pile-stack.prayer-stack > .prayer-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 64px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  animation: item-rise 0.32s var(--ease-out) both;
+}
+
+.pile-stack.prayer-stack > .prayer-row.enabled {
+  border-color: rgba(0, 217, 160, 0.32);
+  background:
+    linear-gradient(140deg, rgba(0, 217, 160, 0.10), rgba(110, 168, 254, 0.04)),
+    var(--panel);
+}
+
+.prayer-row .item-icon {
+  background: rgba(110, 168, 254, 0.14);
+  color: var(--info-2);
+}
+
+.prayer-row.enabled .item-icon {
+  background: rgba(0, 217, 160, 0.18);
+  color: var(--accent-2);
+}
+
+.prayer-row-time {
+  font-family: "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.prayer-row.enabled .prayer-row-time {
+  color: var(--accent-2);
+}
+
 /* Expand transactions */
 
 .expand-row {
   display: flex;
   justify-content: center;
   margin-top: 14px;
+}
+
+.expand-row.top {
+  margin-top: 0;
+  margin-bottom: 8px;
 }
 
 .expand-button {
