@@ -2,32 +2,44 @@
 <html lang="uz">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Assistant</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
-    <link rel="stylesheet" href="./theme.css?v=13" />
-    <link rel="stylesheet" href="./styles.css?v=13" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./theme.css?v=20" />
+    <link rel="stylesheet" href="./styles.css?v=20" />
   </head>
   <body>
     <main class="app-shell">
       <header class="hero">
-        <div class="hero-glow"></div>
+        <div class="hero-aurora"></div>
         <div class="hero-row">
-          <div>
+          <div class="hero-text">
             <p class="eyebrow">Assistant</p>
             <h1>Bugungi nazorat</h1>
-            <p class="subtitle">Moliya, eslatma va namoz nazorati bir joyda.</p>
+            <p class="subtitle">Moliya, eslatma va namoz bir joyda.</p>
           </div>
           <button class="icon-button" id="refreshButton" type="button" aria-label="Yangilash">
             <i data-lucide="refresh-cw"></i>
           </button>
         </div>
-        <section class="balance-hero">
-          <span>Jami balans</span>
+        <button class="balance-hero" id="heroBalanceCard" type="button" aria-label="Kartalarni ochish">
+          <div class="balance-hero-top">
+            <span>Jami balans</span>
+            <span class="balance-hero-cta">
+              <i data-lucide="layers"></i>
+              <span>Kartalar</span>
+            </span>
+          </div>
           <strong id="heroBalance">...</strong>
           <small id="heroMeta">Yangilanmoqda</small>
-        </section>
+        </button>
       </header>
 
       <section class="auth-notice" id="authNotice" hidden>
@@ -45,15 +57,17 @@
         </section>
 
         <div class="quick-grid">
-          <button class="quick-card green-card" data-open-view="finance" data-transaction-filter="income" type="button">
+          <button class="quick-card income" data-open-view="finance" data-transaction-filter="income" type="button">
+            <div class="quick-card-icon"><i data-lucide="arrow-down-left"></i></div>
             <span>Kirim</span>
             <strong id="homeIncome">...</strong>
-            <small>Ro'yxatni ko'rish</small>
+            <small>Bu oy</small>
           </button>
-          <button class="quick-card red-card" data-open-view="finance" data-transaction-filter="expense" type="button">
+          <button class="quick-card expense" data-open-view="finance" data-transaction-filter="expense" type="button">
+            <div class="quick-card-icon"><i data-lucide="arrow-up-right"></i></div>
             <span>Chiqim</span>
             <strong id="homeExpense">...</strong>
-            <small>Ro'yxatni ko'rish</small>
+            <small>Bu oy</small>
           </button>
         </div>
 
@@ -70,13 +84,17 @@
           <h2>Yaqin eslatmalar</h2>
           <button class="link-button" data-open-view="extras" type="button">
             <span id="reminderCount">0 ta</span>
+            <i data-lucide="chevron-right"></i>
           </button>
         </section>
         <div id="reminderList" class="stack-list"></div>
 
         <section class="section-head">
           <h2>Oxirgi operatsiyalar</h2>
-          <button class="link-button" data-open-view="finance" data-transaction-filter="all" type="button">Barchasi</button>
+          <button class="link-button" data-open-view="finance" data-transaction-filter="all" type="button">
+            <span>Barchasi</span>
+            <i data-lucide="chevron-right"></i>
+          </button>
         </section>
         <div id="recentTransactions" class="stack-list"></div>
       </section>
@@ -152,6 +170,12 @@
           <span id="transactionFilterLabel">Barchasi</span>
         </section>
         <div id="transactionList" class="stack-list"></div>
+        <div class="expand-row" id="transactionExpandRow" hidden>
+          <button class="expand-button" id="transactionExpandButton" type="button">
+            <span id="transactionExpandLabel">Kengaytirish</span>
+            <i data-lucide="chevron-down"></i>
+          </button>
+        </div>
 
         <section class="section-head">
           <h2>Kategoriyalar</h2>
@@ -201,7 +225,10 @@
 
         <section class="section-head">
           <h2>Kartalar</h2>
-          <span id="cardUpdatedLabel">...</span>
+          <button class="link-button" data-open-view="cards" type="button">
+            <span id="cardUpdatedLabel">...</span>
+            <i data-lucide="chevron-right"></i>
+          </button>
         </section>
         <div id="balanceList" class="card-grid"></div>
 
@@ -210,6 +237,27 @@
           <span>Avto tahlil</span>
         </section>
         <div id="financeSignals" class="stack-list"></div>
+      </section>
+
+      <section class="view" id="view-cards" data-view="cards">
+        <section class="cards-header">
+          <button class="icon-button ghost" id="cardsBackButton" type="button" aria-label="Orqaga">
+            <i data-lucide="chevron-left"></i>
+          </button>
+          <div>
+            <p class="eyebrow soft">Mening kartalarim</p>
+            <h2 id="cardsTotal">0 UZS</h2>
+          </div>
+          <span class="cards-count" id="cardsCount">0 ta</span>
+        </section>
+
+        <div class="card-wheel" id="cardWheel">
+          <div class="card-wheel-spacer"></div>
+          <div class="card-wheel-list" id="cardWheelList"></div>
+          <div class="card-wheel-spacer"></div>
+        </div>
+
+        <p class="helper-text center" id="cardWheelHint">Kartani ko'rish uchun yuqoriga torting.</p>
       </section>
 
       <section class="view" id="view-extras" data-view="extras">
@@ -258,7 +306,7 @@
 
       <section class="view" id="view-profile" data-view="profile">
         <section class="profile-card">
-          <div class="avatar">F</div>
+          <div class="avatar" id="profileAvatar">F</div>
           <div>
             <h2 id="profileName">Foydalanuvchi</h2>
             <p id="profileStatus">Assistant faol</p>
@@ -419,7 +467,7 @@
 
       <div class="toast" id="toast" role="status"></div>
     </main>
-    <script src="./demo-data.js?v=14"></script>
-    <script src="./app.js?v=14"></script>
+    <script src="./demo-data.js?v=20"></script>
+    <script src="./app.js?v=20"></script>
   </body>
 </html>

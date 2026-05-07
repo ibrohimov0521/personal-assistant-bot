@@ -1,12 +1,21 @@
 const tg = window.Telegram?.WebApp;
 const demoData = window.AssistantDemoData;
+
+let state = clone(demoData);
+let demoMode = true;
 let activeView = "home";
+let previousView = "home";
 let transactionFilter = "all";
 let periodFilter = "today";
 let showAllCompletedReminders = false;
+let showAllTransactions = false;
+let cardWheelScrollHandler = null;
+let cardWheelRaf = 0;
+
+const TRANSACTIONS_COLLAPSED_LIMIT = 6;
 
 function clone(value) {
-  return JSON.parse(JSON.stringify(value));
+  return JSON.parse(JSON.stringify(value ?? {}));
 }
 
 function $(id) {
@@ -18,9 +27,14 @@ function safeNumber(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function formatDateTime(value) {
   if (!value) return "";
   const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat("uz-UZ", {
     day: "2-digit",
     month: "2-digit",
@@ -31,6 +45,7 @@ function formatDateTime(value) {
 
 function monthName(value = new Date()) {
   const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
   const text = new Intl.DateTimeFormat("uz-UZ", { month: "long", year: "numeric" }).format(date);
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
@@ -46,6 +61,7 @@ function escapeHtml(value) {
 
 function showToast(text) {
   const toast = $("toast");
+  if (!toast) return;
   toast.textContent = text;
   toast.classList.add("show");
   window.setTimeout(() => toast.classList.remove("show"), 2400);
@@ -94,7 +110,8 @@ function dashboardErrorMessage(error) {
 }
 
 async function loadDashboard() {
-  $("refreshButton").classList.add("spin");
+  const refresh = $("refreshButton");
+  refresh?.classList.add("spin");
   try {
     state = await api("/api/dashboard");
     demoMode = false;
@@ -107,7 +124,7 @@ async function loadDashboard() {
     setAuthNotice(true, message);
     showToast(message);
   } finally {
-    window.setTimeout(() => $("refreshButton").classList.remove("spin"), 380);
+    window.setTimeout(() => refresh?.classList.remove("spin"), 380);
   }
   render();
 }
@@ -117,6 +134,7 @@ function setView(view) {
   if (view === "admin" && !state.is_admin) {
     view = "home";
   }
+  if (activeView !== view) previousView = activeView;
   activeView = view;
   document.querySelectorAll(".view").forEach((panel) => {
     panel.classList.toggle("active", panel.dataset.view === view);
@@ -124,11 +142,17 @@ function setView(view) {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.classList.toggle("active", button.dataset.viewTarget === view);
   });
+  if (view === "cards") {
+    requestAnimationFrame(() => initCardWheel());
+  } else {
+    teardownCardWheel();
+  }
   if (window.lucide) lucide.createIcons();
 }
 
 function setTransactionFilter(filter = "all") {
   transactionFilter = ["income", "expense"].includes(filter) ? filter : "all";
+  showAllTransactions = false;
   document.querySelectorAll("[data-transaction-filter]").forEach((button) => {
     button.classList.toggle("active-filter", button.dataset.transactionFilter === transactionFilter);
   });
@@ -162,6 +186,7 @@ function periodLabel() {
 function transactionInPeriod(item) {
   if (!item?.occurred_at) return true;
   const date = new Date(item.occurred_at);
+  if (Number.isNaN(date.getTime())) return true;
   const now = new Date(state.generated_at || Date.now());
   const start = new Date(now);
   if (periodFilter === "today") {
@@ -181,38 +206,43 @@ function applyTheme(mode) {
   const nextMode = mode === "light" ? "light" : "dark";
   document.body.classList.toggle("light", nextMode === "light");
   localStorage.setItem("assistant_theme", nextMode);
-  $("themeModeLabel").textContent = nextMode === "light" ? "Kunduzgi rejim" : "Tun rejimi";
+  const label = $("themeModeLabel");
+  if (label) label.textContent = nextMode === "light" ? "Kunduzgi rejim" : "Tun rejimi";
   if (tg?.setHeaderColor) {
-    tg.setHeaderColor(nextMode === "light" ? "#f6f8fb" : "#111217");
+    tg.setHeaderColor(nextMode === "light" ? "#f3f5f9" : "#07080c");
+  }
+  if (tg?.setBackgroundColor) {
+    tg.setBackgroundColor(nextMode === "light" ? "#f3f5f9" : "#07080c");
   }
 }
 
 function renderHero() {
-  $("heroBalance").textContent = state.balance_total_text;
-  $("heroMeta").textContent = `${state.balances.length} ta karta - ${formatDateTime(state.generated_at)}`;
+  const balances = state.balances || [];
+  $("heroBalance").textContent = state.balance_total_text || "0 UZS";
+  $("heroMeta").textContent = `${balances.length} ta karta · ${formatDateTime(state.generated_at)}`;
   $("generatedAt").textContent = `Yangilandi: ${formatDateTime(state.generated_at)}`;
-  $("homeIncome").textContent = state.month.income_text;
-  $("homeExpense").textContent = state.month.expense_text;
+  $("homeIncome").textContent = state.month?.income_text || "0 UZS";
+  $("homeExpense").textContent = state.month?.expense_text || "0 UZS";
 }
 
 function renderOverview() {
-  const next = state.prayer.next;
+  const next = state.prayer?.next;
   $("nextPrayerName").textContent = next ? `${next.name} ${next.time}` : "Bugungi vaqtlar tugadi";
-  $("nextPrayerMeta").textContent = `${state.prayer.city} - eslatma ${state.prayer.enabled ? "yoqilgan" : "o'chirilgan"}`;
-  $("reminderCount").textContent = `${state.active_reminders?.length || state.reminders.length} ta`;
+  $("nextPrayerMeta").textContent = `${state.prayer?.city || "Toshkent"} · eslatma ${state.prayer?.enabled ? "yoqilgan" : "o'chirilgan"}`;
+  const reminderListLen = (state.active_reminders || state.reminders || []).length;
+  $("reminderCount").textContent = `${reminderListLen} ta`;
   renderHomeReminders();
   renderRecentTransactions();
 }
 
 function renderHomeReminders() {
   const reminders = $("reminderList");
-  const list = state.active_reminders?.length ? state.active_reminders : state.reminders;
+  const list = state.active_reminders?.length ? state.active_reminders : state.reminders || [];
   reminders.innerHTML = "";
   if (!list.length) {
     reminders.innerHTML = `<div class="empty">Faol eslatmalar yo'q. Telegramga "ertaga 10:00 dori ichish" deb yozing.</div>`;
     return;
   }
-
   list.slice(0, 4).forEach((item, index) => {
     reminders.insertAdjacentHTML("beforeend", reminderItemHtml(item, index, false));
   });
@@ -220,9 +250,9 @@ function renderHomeReminders() {
 
 function transactionItemHtml(item, index, manageable = false) {
   const type = item.type === "income" ? "income" : "expense";
-  const prefix = type === "income" ? "+" : "-";
+  const prefix = type === "income" ? "+" : "−";
   const icon = type === "income" ? "arrow-down-left" : "arrow-up-right";
-  const card = item.card_last4 ? ` - *${escapeHtml(item.card_last4)}` : "";
+  const card = item.card_last4 ? ` · *${escapeHtml(item.card_last4)}` : "";
   const actions = manageable
     ? `<div class="item-actions">
         <button class="icon-button small" data-edit-transaction="${item.id}" type="button" aria-label="Tahrirlash">
@@ -233,26 +263,26 @@ function transactionItemHtml(item, index, manageable = false) {
         </button>
       </div>`
     : "";
-  return `<article class="list-item ${manageable ? "managed" : ""}" style="animation-delay:${index * 35}ms">
+  return `<article class="list-item ${manageable ? "managed" : ""}" style="animation-delay:${index * 28}ms">
     <div class="item-icon ${type}"><i data-lucide="${icon}"></i></div>
     <div>
       <div class="item-title">${escapeHtml(item.description || item.category || "Operatsiya")}</div>
-      <div class="item-meta">${escapeHtml(item.category || "Boshqa")} - ${formatDateTime(item.occurred_at)}${card}</div>
+      <div class="item-meta">${escapeHtml(item.category || "Boshqa")} · ${formatDateTime(item.occurred_at)}${card}</div>
     </div>
-    <div class="amount ${type}">${prefix}${item.amount_text}</div>
+    <div class="amount ${type}">${prefix}${escapeHtml(item.amount_text || "0")}</div>
     ${actions}
   </article>`;
 }
 
 function renderRecentTransactions() {
   const recent = $("recentTransactions");
+  const list = state.recent_transactions || [];
   recent.innerHTML = "";
-  if (!state.recent_transactions.length) {
+  if (!list.length) {
     recent.innerHTML = `<div class="empty">Hali kirim yoki xarajat yo'q. Bank xabarini botga yuboring.</div>`;
     return;
   }
-
-  state.recent_transactions.slice(0, 5).forEach((item, index) => {
+  list.slice(0, 5).forEach((item, index) => {
     recent.insertAdjacentHTML("beforeend", transactionItemHtml(item, index));
   });
 }
@@ -268,14 +298,18 @@ function renderFinance() {
   $("reportIncome").textContent = data.income_text || "0 so'm";
   $("reportExpense").textContent = data.expense_text || "0 so'm";
   $("reportNet").textContent = data.net_text || "0 so'm";
+
   const dailyLimit = safeNumber(state.settings?.daily_expense_limit);
   $("dailyLimitInput").value = dailyLimit > 0 ? String(dailyLimit) : "";
   $("dailyLimitNote").textContent = dailyLimit > 0
     ? `Bugungi limit: ${state.settings.daily_expense_limit_text}. Sarflangan: ${state.today?.expense_text || "0 so'm"}`
     : "Kunlik limit belgilanmagan.";
-  $("dailyReportToggleButton").classList.toggle("active", Boolean(state.settings?.daily_report_enabled));
-  $("dailyReportToggleButton").querySelector("span").textContent =
+
+  const reportButton = $("dailyReportToggleButton");
+  reportButton.classList.toggle("active", Boolean(state.settings?.daily_report_enabled));
+  reportButton.querySelector("span").textContent =
     state.settings?.daily_report_enabled ? "Kunlik hisobot yoqilgan" : "Kunlik hisobot o'chirilgan";
+
   renderTransactions();
   renderCategories();
   renderCategoryLimits();
@@ -287,37 +321,56 @@ function renderFinance() {
 function renderTransactions() {
   const labelMap = { all: "Barcha operatsiyalar", income: "Kirimlar", expense: "Chiqimlar" };
   $("transactionFilterLabel").textContent = labelMap[transactionFilter] || labelMap.all;
+
   const list = $("transactionList");
+  const expandRow = $("transactionExpandRow");
+  const expandButton = $("transactionExpandButton");
+  const expandLabel = $("transactionExpandLabel");
+
   const rows = (state.transactions || []).filter(
     (item) => transactionInPeriod(item) && (transactionFilter === "all" || item.type === transactionFilter),
   );
+
   list.innerHTML = "";
   if (!rows.length) {
     list.innerHTML = `<div class="empty">${labelMap[transactionFilter]} hali yo'q.</div>`;
+    expandRow.hidden = true;
     return;
   }
-  rows.forEach((item, index) => {
+
+  const visibleRows = showAllTransactions ? rows : rows.slice(0, TRANSACTIONS_COLLAPSED_LIMIT);
+  visibleRows.forEach((item, index) => {
     list.insertAdjacentHTML("beforeend", transactionItemHtml(item, index, true));
   });
+
+  if (rows.length > TRANSACTIONS_COLLAPSED_LIMIT) {
+    expandRow.hidden = false;
+    expandButton.classList.toggle("is-open", showAllTransactions);
+    expandLabel.textContent = showAllTransactions
+      ? "Yopish"
+      : `Kengaytirish · yana ${rows.length - TRANSACTIONS_COLLAPSED_LIMIT} ta`;
+  } else {
+    expandRow.hidden = true;
+  }
 }
 
 function renderCategories() {
   const categories = $("categoryList");
   categories.innerHTML = "";
-  const max = Math.max(1, ...state.categories.map((item) => safeNumber(item.amount)));
-  if (!state.categories.length) {
+  const list = state.categories || [];
+  const max = Math.max(1, ...list.map((item) => safeNumber(item.amount)));
+  if (!list.length) {
     categories.innerHTML = `<div class="empty">Kategoriyalar hali yo'q. Xarajatlar kelganda shu yerda ajraladi.</div>`;
     return;
   }
-
-  state.categories.forEach((item, index) => {
+  list.forEach((item, index) => {
     const width = Math.max(8, Math.round((safeNumber(item.amount) / max) * 100));
     categories.insertAdjacentHTML(
       "beforeend",
-      `<article class="category-row" style="animation-delay:${index * 35}ms">
+      `<article class="category-row" style="animation-delay:${index * 28}ms">
         <div>
           <div class="item-title">${escapeHtml(item.name)}</div>
-          <div class="item-meta">${item.amount_text}</div>
+          <div class="item-meta">${escapeHtml(item.amount_text || "")}</div>
         </div>
         <div class="bar"><span style="width:${width}%"></span></div>
       </article>`,
@@ -337,11 +390,11 @@ function renderCategoryLimits() {
   limits.forEach((item, index) => {
     list.insertAdjacentHTML(
       "beforeend",
-      `<article class="list-item compact" style="animation-delay:${index * 35}ms">
+      `<article class="list-item compact" style="animation-delay:${index * 28}ms">
         <div class="item-icon"><i data-lucide="gauge"></i></div>
         <div>
           <div class="item-title">${escapeHtml(item.category)}</div>
-          <div class="item-meta">Oylik limit: ${escapeHtml(item.amount_text)}</div>
+          <div class="item-meta">Oylik limit: ${escapeHtml(item.amount_text || "")}</div>
         </div>
         <button class="icon-button danger small" data-delete-category-limit="${escapeHtml(item.category)}" type="button" aria-label="Limitni o'chirish">
           <i data-lucide="trash-2"></i>
@@ -352,11 +405,11 @@ function renderCategoryLimits() {
 }
 
 function renderSavings() {
-  const income = safeNumber(state.month.income);
-  const expense = safeNumber(state.month.expense);
+  const income = safeNumber(state.month?.income);
+  const expense = safeNumber(state.month?.expense);
   const net = income - expense;
   const percent = income > 0 ? Math.max(0, Math.min(100, Math.round((Math.max(net, 0) / income) * 100))) : 0;
-  $("savingNet").textContent = state.month.net_text;
+  $("savingNet").textContent = state.month?.net_text || "0 so'm";
   $("savingRing").textContent = `${percent}%`;
   $("savingRing").style.setProperty("--saving", percent);
   $("savingProgress").style.width = `${percent}%`;
@@ -367,20 +420,20 @@ function renderSavings() {
 }
 
 function renderBalances() {
-  $("cardUpdatedLabel").textContent = `${state.balances.length} ta karta`;
+  const balances = state.balances || [];
+  $("cardUpdatedLabel").textContent = `${balances.length} ta karta`;
   const list = $("balanceList");
   list.innerHTML = "";
-  if (!state.balances.length) {
+  if (!balances.length) {
     list.innerHTML = `<div class="empty">Balanslar hali yo'q. UZCARD/HUMO xabarini botga yuboring.</div>`;
     return;
   }
-
-  state.balances.forEach((item) => {
+  balances.forEach((item) => {
     list.insertAdjacentHTML(
       "beforeend",
       `<article class="balance-card">
-        <span>${escapeHtml(item.label)}</span>
-        <strong>${item.amount_text}</strong>
+        <span>${escapeHtml(item.label || "Karta")}</span>
+        <strong>${escapeHtml(item.amount_text || "0")}</strong>
         <small>Yangilangan: ${formatDateTime(item.updated_at)}</small>
       </article>`,
     );
@@ -389,18 +442,18 @@ function renderBalances() {
 
 function renderSignals() {
   const box = $("financeSignals");
-  const income = safeNumber(state.month.income);
-  const expense = safeNumber(state.month.expense);
+  const income = safeNumber(state.month?.income);
+  const expense = safeNumber(state.month?.expense);
   const todayExpense = safeNumber(state.today?.expense);
   const dailyLimit = safeNumber(state.settings?.daily_expense_limit);
-  const cards = state.balances.length;
+  const cards = (state.balances || []).length;
   const signals = [];
 
   if (cards === 0) signals.push(["wallet-cards", "Karta balansi yo'q", "Bank botidan kelgan balans xabarini yuboring."]);
   if (dailyLimit > 0 && todayExpense >= dailyLimit) {
-    signals.push(["shield-alert", "Kunlik limit oshdi", `Bugun ${state.today.expense_text} sarflandi. Limit: ${state.settings.daily_expense_limit_text}.`]);
+    signals.push(["shield-alert", "Kunlik limit oshdi", `Bugun ${state.today?.expense_text || ""} sarflandi. Limit: ${state.settings.daily_expense_limit_text}.`]);
   } else if (dailyLimit > 0 && todayExpense >= dailyLimit * 0.8) {
-    signals.push(["bell-ring", "Limitga yaqin", `Bugungi xarajat limitning katta qismiga yetdi: ${state.today.expense_text}.`]);
+    signals.push(["bell-ring", "Limitga yaqin", `Bugungi xarajat limitning katta qismiga yetdi: ${state.today?.expense_text || ""}.`]);
   }
   (state.finance_warnings || []).forEach((item) => {
     signals.push([item.icon || "bell-ring", item.title || "Kategoriya limiti", item.text || "Limitga yaqin."]);
@@ -412,7 +465,7 @@ function renderSignals() {
 
   box.innerHTML = signals
     .map(
-      ([icon, title, text], index) => `<article class="list-item" style="animation-delay:${index * 35}ms">
+      ([icon, title, text], index) => `<article class="list-item" style="animation-delay:${index * 28}ms">
         <div class="item-icon"><i data-lucide="${icon}"></i></div>
         <div>
           <div class="item-title">${escapeHtml(title)}</div>
@@ -424,20 +477,164 @@ function renderSignals() {
     .join("");
 }
 
+/* ──────────────────────────────────────────────────────────
+   Cards drum carousel
+   ────────────────────────────────────────────────────────── */
+
+function cardGradientFor(seed) {
+  const palette = ["a", "b", "c", "d", "e"];
+  const hash = String(seed)
+    .split("")
+    .reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) >>> 0, 7);
+  return `var(--grad-card-${palette[hash % palette.length]})`;
+}
+
+function bankCardHtml(item, index) {
+  const label = item.label || "Karta";
+  const last4 = (item.card_last4 || extractLast4(label) || "••••").slice(-4);
+  const brand = detectBrand(label);
+  const amount = item.amount_text || "0";
+  const updated = formatDateTime(item.updated_at) || "—";
+  const gradient = cardGradientFor(`${label}-${last4}-${index}`);
+  return `<article class="bank-card" style="--card-bg:${gradient}" data-card-index="${index}">
+    <div class="bank-card-top">
+      <span class="bank-card-brand">${escapeHtml(brand)}</span>
+      <span class="bank-card-chip" aria-hidden="true"></span>
+    </div>
+    <div class="bank-card-balance">
+      <span>Balans</span>
+      <strong>${escapeHtml(amount)}</strong>
+    </div>
+    <div class="bank-card-bottom">
+      <div class="bank-card-number">•••• •••• •••• ${escapeHtml(last4)}</div>
+      <div class="bank-card-meta">
+        <strong>${escapeHtml(label)}</strong>
+        <span>${escapeHtml(updated)}</span>
+      </div>
+    </div>
+  </article>`;
+}
+
+function extractLast4(label) {
+  const match = String(label || "").match(/(\d{4})(?!.*\d)/);
+  return match ? match[1] : "";
+}
+
+function detectBrand(label) {
+  const text = String(label || "").toUpperCase();
+  if (text.includes("VISA")) return "VISA";
+  if (text.includes("MASTER")) return "Mastercard";
+  if (text.includes("HUMO")) return "HUMO";
+  if (text.includes("UZCARD")) return "UZCARD";
+  return "Karta";
+}
+
+function renderCardWheel() {
+  const balances = state.balances || [];
+  const list = $("cardWheelList");
+  const count = $("cardsCount");
+  const total = $("cardsTotal");
+  const hint = $("cardWheelHint");
+  if (!list) return;
+
+  total.textContent = state.balance_total_text || "0 UZS";
+  count.textContent = `${balances.length} ta`;
+
+  if (!balances.length) {
+    list.innerHTML = `<div class="cards-empty">Hali karta balansi yo'q.<br/>UZCARD/HUMO botidagi xabarni assistant botga yuboring.</div>`;
+    if (hint) hint.hidden = true;
+    return;
+  }
+
+  if (hint) hint.hidden = balances.length <= 1;
+  list.innerHTML = balances.map((item, index) => bankCardHtml(item, index)).join("");
+}
+
+function teardownCardWheel() {
+  const wheel = $("cardWheel");
+  if (wheel && cardWheelScrollHandler) {
+    wheel.removeEventListener("scroll", cardWheelScrollHandler);
+    cardWheelScrollHandler = null;
+  }
+  if (cardWheelRaf) {
+    cancelAnimationFrame(cardWheelRaf);
+    cardWheelRaf = 0;
+  }
+}
+
+function applyCardWheelTransforms() {
+  const wheel = $("cardWheel");
+  if (!wheel) return;
+  const cards = wheel.querySelectorAll(".bank-card");
+  if (!cards.length) return;
+  const wheelRect = wheel.getBoundingClientRect();
+  const center = wheelRect.top + wheelRect.height / 2;
+
+  cards.forEach((card) => {
+    const rect = card.getBoundingClientRect();
+    const cardCenter = rect.top + rect.height / 2;
+    const distRel = clamp((cardCenter - center) / rect.height, -2.5, 2.5);
+    const abs = Math.abs(distRel);
+
+    const rotateX = clamp(distRel * -28, -55, 55);
+    const translateZ = -abs * 90;
+    const translateY = distRel * 6;
+    const scale = 1 - Math.min(0.18, abs * 0.10);
+    const opacity = clamp(1 - abs * 0.40, 0.18, 1);
+    const blur = abs > 1.2 ? Math.min(4, (abs - 1.2) * 4) : 0;
+
+    card.style.transform = `translate3d(0, ${translateY}px, ${translateZ}px) rotateX(${rotateX}deg) scale(${scale})`;
+    card.style.opacity = opacity.toFixed(3);
+    card.style.zIndex = String(Math.round(100 - abs * 50));
+    card.style.filter = blur > 0 ? `blur(${blur.toFixed(2)}px)` : "";
+  });
+}
+
+function initCardWheel() {
+  renderCardWheel();
+  if (window.lucide) lucide.createIcons();
+
+  const wheel = $("cardWheel");
+  if (!wheel) return;
+  teardownCardWheel();
+
+  // Snap initial scroll so the first card is centered.
+  const firstCard = wheel.querySelector(".bank-card");
+  if (firstCard) {
+    const target = firstCard.offsetTop - (wheel.clientHeight - firstCard.offsetHeight) / 2;
+    wheel.scrollTop = Math.max(0, target);
+  }
+
+  applyCardWheelTransforms();
+
+  cardWheelScrollHandler = () => {
+    if (cardWheelRaf) return;
+    cardWheelRaf = requestAnimationFrame(() => {
+      cardWheelRaf = 0;
+      applyCardWheelTransforms();
+    });
+  };
+  wheel.addEventListener("scroll", cardWheelScrollHandler, { passive: true });
+}
+
+/* ──────────────────────────────────────────────────────────
+   Reminders & extras
+   ────────────────────────────────────────────────────────── */
+
 function reminderItemHtml(item, index, removable) {
   const statusText = item.status === "sent" ? "Yakunlangan" : item.status === "cancelled" ? "O'chirilgan" : "Aktiv";
   const dateText = item.status === "sent" && item.sent_at ? formatDateTime(item.sent_at) : formatDateTime(item.due_at);
-  const repeatText = item.repeat_label ? ` - ${escapeHtml(item.repeat_label)}` : "";
+  const repeatText = item.repeat_label ? ` · ${escapeHtml(item.repeat_label)}` : "";
   const action = removable
     ? `<button class="icon-button danger small" data-delete-reminder="${item.id}" type="button" aria-label="O'chirish">
         <i data-lucide="trash-2"></i>
       </button>`
     : `<i data-lucide="chevron-right"></i>`;
-  return `<article class="list-item" style="animation-delay:${index * 35}ms">
+  return `<article class="list-item" style="animation-delay:${index * 28}ms">
     <div class="item-icon"><i data-lucide="${item.status === "pending" ? "bell-ring" : "check-check"}"></i></div>
     <div>
       <div class="item-title">${escapeHtml(item.text)}</div>
-      <div class="item-meta">${statusText} - ${dateText}${repeatText}</div>
+      <div class="item-meta">${statusText} · ${dateText}${repeatText}</div>
     </div>
     ${action}
   </article>`;
@@ -473,7 +670,26 @@ function renderProfile() {
   const user = tg?.initDataUnsafe?.user || {};
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ") || "Foydalanuvchi";
   $("profileName").textContent = fullName;
-  document.querySelector(".avatar").textContent = fullName.trim().charAt(0).toUpperCase() || "F";
+
+  const avatar = $("profileAvatar");
+  if (avatar) {
+    const photo = user.photo_url;
+    const letter = (fullName.trim().charAt(0) || "F").toUpperCase();
+    avatar.textContent = "";
+    if (photo) {
+      const img = document.createElement("img");
+      img.alt = "";
+      img.referrerPolicy = "no-referrer";
+      img.src = photo;
+      img.addEventListener("error", () => {
+        avatar.textContent = letter;
+      });
+      avatar.append(img);
+    } else {
+      avatar.textContent = letter;
+    }
+  }
+
   $("profileStatus").textContent = demoMode ? "Telegram orqali oching" : "Assistant faol";
   $("profileUsername").textContent = user.username ? `@${user.username}` : "Ko'rsatilmagan";
   $("profileId").textContent = user.id ? String(user.id) : "Telegramda oching";
@@ -497,7 +713,7 @@ function userStatusBadges(item) {
   if (item.admin) badges.push(`<span class="status-pill admin">Admin</span>`);
   if (item.allowed) badges.push(`<span class="status-pill allowed">Ruxsat</span>`);
   if (item.blocked) badges.push(`<span class="status-pill blocked">Blok</span>`);
-  if (!badges.length) badges.push(`<span class="status-pill muted">Noma'lum</span>`);
+  if (!badges.length) badges.push(`<span class="status-pill">Noma'lum</span>`);
   return badges.join("");
 }
 
@@ -509,12 +725,12 @@ function adminUserHtml(item, index) {
     : item.blocked
       ? `<button class="ghost-action" data-admin-unblock="${item.user_id}" type="button"><i data-lucide="unlock"></i><span>Blokdan chiqarish</span></button>`
       : `<button class="ghost-action danger" data-admin-block="${item.user_id}" type="button"><i data-lucide="ban"></i><span>Bloklash</span></button>`;
-  return `<article class="admin-user-card" style="animation-delay:${index * 35}ms">
+  return `<article class="admin-user-card" style="animation-delay:${index * 28}ms">
     <div class="admin-user-head">
       <div class="avatar mini">${escapeHtml(item.name || "U").charAt(0).toUpperCase()}</div>
       <div>
         <div class="item-title">${escapeHtml(item.name || `User ${item.user_id}`)}</div>
-        <div class="item-meta">${escapeHtml(username)} - ID ${escapeHtml(item.user_id)}</div>
+        <div class="item-meta">${escapeHtml(username)} · ID ${escapeHtml(item.user_id)}</div>
       </div>
       <div class="status-row">${userStatusBadges(item)}</div>
     </div>
@@ -533,15 +749,13 @@ function renderAdmin() {
   if (!state.is_admin) return;
   const users = state.admin?.users || [];
   const audits = state.admin?.audit_logs || [];
-  $("adminSummary").textContent = `${state.admin?.allowed_count || 0} ruxsat, ${state.admin?.blocked_count || 0} blok`;
+  $("adminSummary").textContent = `${state.admin?.allowed_count || 0} ruxsat · ${state.admin?.blocked_count || 0} blok`;
   const list = $("adminUserList");
   list.innerHTML = "";
   if (!users.length) {
     list.innerHTML = `<div class="empty">Hali userlar ko'rinmagan. User botga /start yoki /id yuborganda profili saqlanadi.</div>`;
   } else {
-    users.forEach((item, index) => {
-      list.insertAdjacentHTML("beforeend", adminUserHtml(item, index));
-    });
+    users.forEach((item, index) => list.insertAdjacentHTML("beforeend", adminUserHtml(item, index)));
   }
 
   const auditList = $("adminAuditList");
@@ -550,14 +764,14 @@ function renderAdmin() {
     auditList.innerHTML = `<div class="empty">Audit tarixi hali bo'sh.</div>`;
   } else {
     audits.forEach((item, index) => {
-      const target = item.target_user_id ? ` -> ${item.target_user_id}` : "";
+      const target = item.target_user_id ? ` → ${item.target_user_id}` : "";
       auditList.insertAdjacentHTML(
         "beforeend",
-        `<article class="list-item compact" style="animation-delay:${index * 35}ms">
+        `<article class="list-item compact" style="animation-delay:${index * 28}ms">
           <div class="item-icon"><i data-lucide="history"></i></div>
           <div>
             <div class="item-title">${escapeHtml(item.action)}${escapeHtml(target)}</div>
-            <div class="item-meta">${formatDateTime(item.created_at)} - admin ${escapeHtml(item.actor_user_id)} ${item.details ? "- " + escapeHtml(item.details) : ""}</div>
+            <div class="item-meta">${formatDateTime(item.created_at)} · admin ${escapeHtml(item.actor_user_id)} ${item.details ? "· " + escapeHtml(item.details) : ""}</div>
           </div>
         </article>`,
       );
@@ -582,35 +796,35 @@ async function reloadAdminUsers() {
 }
 
 function renderPrayer() {
-  $("prayerCityLabel").textContent = state.prayer.city;
-  $("prayerSource").textContent = state.prayer.source || "Offline hisoblash";
+  $("prayerCityLabel").textContent = state.prayer?.city || "Toshkent";
+  $("prayerSource").textContent = state.prayer?.source || "Offline hisoblash";
   document.querySelectorAll("[data-lead-minutes]").forEach((button) => {
-    button.classList.toggle("active", Number(button.dataset.leadMinutes) === safeNumber(state.prayer.minutes_before));
+    button.classList.toggle("active", Number(button.dataset.leadMinutes) === safeNumber(state.prayer?.minutes_before));
   });
   const select = $("citySelect");
   select.innerHTML = "";
-  state.cities.forEach((city) => {
+  (state.cities || []).forEach((city) => {
     const option = document.createElement("option");
     option.value = city;
     option.textContent = city;
-    option.selected = city === state.prayer.city;
+    option.selected = city === state.prayer?.city;
     select.append(option);
   });
 
   const button = $("togglePrayerButton");
-  button.classList.toggle("off", state.prayer.enabled);
-  button.querySelector("span").textContent = state.prayer.enabled ? "Barchasini o'chirish" : "Barchasini yoqish";
+  button.classList.toggle("off", state.prayer?.enabled);
+  button.querySelector("span").textContent = state.prayer?.enabled ? "Barchasini o'chirish" : "Barchasini yoqish";
 
   const grid = $("prayerTimes");
   grid.innerHTML = "";
-  state.prayer.times.forEach((item) => {
+  (state.prayer?.times || []).forEach((item) => {
     const enabled = Boolean(item.enabled);
     const disabled = !item.can_notify;
     grid.insertAdjacentHTML(
       "beforeend",
       `<article class="prayer-time ${enabled ? "enabled" : ""}">
         <span>${escapeHtml(item.name)}</span>
-        <strong>${item.time}</strong>
+        <strong>${escapeHtml(item.time)}</strong>
         <button class="toggle-mini" data-prayer-key="${item.key}" type="button" ${disabled ? "disabled" : ""}>
           ${disabled ? "Ma'lumot" : enabled ? "Yoqilgan" : "O'chirilgan"}
         </button>
@@ -627,9 +841,14 @@ function render() {
   renderExtras();
   renderProfile();
   renderAdmin();
+  if (activeView === "cards") initCardWheel();
   setTransactionFilter(transactionFilter);
   if (window.lucide) lucide.createIcons();
 }
+
+/* ──────────────────────────────────────────────────────────
+   Modal helpers
+   ────────────────────────────────────────────────────────── */
 
 function openTransactionEditor(item) {
   $("transactionModalTitle").textContent = "Operatsiyani tahrirlash";
@@ -662,6 +881,10 @@ function closeTransactionEditor() {
   document.body.classList.remove("modal-open");
 }
 
+/* ──────────────────────────────────────────────────────────
+   Wiring
+   ────────────────────────────────────────────────────────── */
+
 document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => setView(button.dataset.viewTarget));
 });
@@ -684,21 +907,32 @@ document.querySelectorAll("[data-period-filter]").forEach((button) => {
   button.addEventListener("click", () => setPeriodFilter(button.dataset.periodFilter));
 });
 
+$("heroBalanceCard").addEventListener("click", () => {
+  setView("cards");
+});
+
+$("cardsBackButton").addEventListener("click", () => {
+  setView(previousView && previousView !== "cards" ? previousView : "home");
+});
+
+$("transactionExpandButton").addEventListener("click", () => {
+  showAllTransactions = !showAllTransactions;
+  renderTransactions();
+  if (window.lucide) lucide.createIcons();
+});
+
 document.addEventListener("click", async (event) => {
   const deleteButton = event.target.closest("[data-delete-reminder]");
   if (deleteButton) {
     const id = Number(deleteButton.dataset.deleteReminder);
     if (!id) return;
     if (demoMode) {
-      state.active_reminders = state.active_reminders.filter((item) => item.id !== id);
+      state.active_reminders = (state.active_reminders || []).filter((item) => item.id !== id);
       renderExtras();
       showToast("Telegram orqali ochilganda saqlanadi");
       return;
     }
-    await api("/api/reminders/delete", {
-      method: "POST",
-      body: JSON.stringify({ id }),
-    });
+    await api("/api/reminders/delete", { method: "POST", body: JSON.stringify({ id }) });
     await loadDashboard();
     showToast("Eslatma o'chirildi");
     return;
@@ -718,16 +952,13 @@ document.addEventListener("click", async (event) => {
     if (!id) return;
     if (!window.confirm("Bu operatsiya o'chirilsinmi?")) return;
     if (demoMode) {
-      state.transactions = state.transactions.filter((item) => Number(item.id) !== id);
-      state.recent_transactions = state.recent_transactions.filter((item) => Number(item.id) !== id);
+      state.transactions = (state.transactions || []).filter((item) => Number(item.id) !== id);
+      state.recent_transactions = (state.recent_transactions || []).filter((item) => Number(item.id) !== id);
       render();
       showToast("Telegram orqali ochilganda saqlanadi");
       return;
     }
-    await api("/api/transactions/delete", {
-      method: "POST",
-      body: JSON.stringify({ id }),
-    });
+    await api("/api/transactions/delete", { method: "POST", body: JSON.stringify({ id }) });
     await loadDashboard();
     showToast("Operatsiya o'chirildi");
     return;
@@ -742,10 +973,7 @@ document.addEventListener("click", async (event) => {
       showToast("Telegram orqali ochilganda bajariladi");
       return;
     }
-    await api("/api/data/clear", {
-      method: "POST",
-      body: JSON.stringify({ scope }),
-    });
+    await api("/api/data/clear", { method: "POST", body: JSON.stringify({ scope }) });
     await loadDashboard();
     showToast("Ma'lumotlar tozalandi");
     return;
@@ -761,10 +989,7 @@ document.addEventListener("click", async (event) => {
       showToast("Telegram orqali ochilganda saqlanadi");
       return;
     }
-    await api("/api/category-limits/delete", {
-      method: "POST",
-      body: JSON.stringify({ category }),
-    });
+    await api("/api/category-limits/delete", { method: "POST", body: JSON.stringify({ category }) });
     await loadDashboard();
     showToast("Limit o'chirildi");
     return;
@@ -774,10 +999,7 @@ document.addEventListener("click", async (event) => {
   if (blockButton) {
     const userId = Number(blockButton.dataset.adminBlock);
     if (!userId || !window.confirm(`${userId} bloklansinmi?`)) return;
-    await api("/api/admin/block", {
-      method: "POST",
-      body: JSON.stringify({ user_id: userId }),
-    });
+    await api("/api/admin/block", { method: "POST", body: JSON.stringify({ user_id: userId }) });
     await reloadAdminUsers();
     showToast("User bloklandi");
     return;
@@ -787,19 +1009,14 @@ document.addEventListener("click", async (event) => {
   if (unblockButton) {
     const userId = Number(unblockButton.dataset.adminUnblock);
     if (!userId) return;
-    await api("/api/admin/unblock", {
-      method: "POST",
-      body: JSON.stringify({ user_id: userId }),
-    });
+    await api("/api/admin/unblock", { method: "POST", body: JSON.stringify({ user_id: userId }) });
     await reloadAdminUsers();
     showToast("User blokdan chiqarildi");
   }
 });
 
 $("refreshButton").addEventListener("click", loadDashboard);
-
 $("openNewTransactionButton").addEventListener("click", openNewTransactionEditor);
-
 $("adminRefreshButton").addEventListener("click", reloadAdminUsers);
 
 $("adminAllowButton").addEventListener("click", async () => {
@@ -812,10 +1029,7 @@ $("adminAllowButton").addEventListener("click", async () => {
     showToast("Admin panel Telegram ichida ishlaydi");
     return;
   }
-  const result = await api("/api/admin/allow", {
-    method: "POST",
-    body: JSON.stringify({ user_id: userId }),
-  });
+  const result = await api("/api/admin/allow", { method: "POST", body: JSON.stringify({ user_id: userId }) });
   $("adminUserInput").value = "";
   await reloadAdminUsers();
   showToast(result.message || "User qo'shildi");
@@ -850,8 +1064,11 @@ $("transactionForm").addEventListener("submit", async (event) => {
     : new Date().toISOString();
   if (demoMode) {
     if (id) {
-      state.transactions = state.transactions.map((item) => (Number(item.id) === id ? { ...item, ...body, amount: Number(body.amount), amount_text: `${body.amount} so'm` } : item));
+      state.transactions = (state.transactions || []).map((item) =>
+        Number(item.id) === id ? { ...item, ...body, amount: Number(body.amount), amount_text: `${body.amount} so'm` } : item,
+      );
     } else {
+      state.transactions = state.transactions || [];
       state.transactions.unshift({ ...body, id: Date.now(), amount: Number(body.amount), amount_text: `${body.amount} so'm`, currency: "UZS" });
     }
     closeTransactionEditor();
@@ -871,16 +1088,14 @@ $("transactionForm").addEventListener("submit", async (event) => {
 $("saveDailyLimitButton").addEventListener("click", async () => {
   const amount = $("dailyLimitInput").value.trim();
   if (demoMode) {
+    state.settings = state.settings || {};
     state.settings.daily_expense_limit = Number(amount.replace(/\D/g, "")) || 0;
     state.settings.daily_expense_limit_text = state.settings.daily_expense_limit ? `${state.settings.daily_expense_limit} so'm` : "Belgilanmagan";
     renderFinance();
     showToast("Telegram orqali ochilganda saqlanadi");
     return;
   }
-  await api("/api/settings/daily-limit", {
-    method: "POST",
-    body: JSON.stringify({ amount }),
-  });
+  await api("/api/settings/daily-limit", { method: "POST", body: JSON.stringify({ amount }) });
   await loadDashboard();
   showToast("Kunlik limit saqlandi");
 });
@@ -902,10 +1117,7 @@ $("saveCategoryLimitButton").addEventListener("click", async () => {
     showToast("Telegram orqali ochilganda saqlanadi");
     return;
   }
-  await api("/api/category-limits/set", {
-    method: "POST",
-    body: JSON.stringify({ category, amount }),
-  });
+  await api("/api/category-limits/set", { method: "POST", body: JSON.stringify({ category, amount }) });
   $("categoryLimitNameInput").value = "";
   $("categoryLimitAmountInput").value = "";
   await loadDashboard();
@@ -915,15 +1127,13 @@ $("saveCategoryLimitButton").addEventListener("click", async () => {
 $("dailyReportToggleButton").addEventListener("click", async () => {
   const enabled = !Boolean(state.settings?.daily_report_enabled);
   if (demoMode) {
+    state.settings = state.settings || {};
     state.settings.daily_report_enabled = enabled;
     renderFinance();
     showToast("Telegram orqali ochilganda saqlanadi");
     return;
   }
-  await api("/api/settings/daily-report", {
-    method: "POST",
-    body: JSON.stringify({ enabled }),
-  });
+  await api("/api/settings/daily-report", { method: "POST", body: JSON.stringify({ enabled }) });
   await loadDashboard();
   showToast(enabled ? "Kunlik hisobot yoqildi" : "Kunlik hisobot o'chirildi");
 });
@@ -951,7 +1161,7 @@ $("togglePrayerButton").addEventListener("click", async () => {
   if (demoMode) {
     const next = !state.prayer.enabled;
     state.prayer.enabled = next;
-    state.prayer.times = state.prayer.times.map((item) => ({
+    state.prayer.times = (state.prayer.times || []).map((item) => ({
       ...item,
       enabled: item.can_notify ? next : false,
     }));
@@ -959,10 +1169,7 @@ $("togglePrayerButton").addEventListener("click", async () => {
     showToast("Telegram orqali ochilganda saqlanadi");
     return;
   }
-  await api("/api/prayer/toggle", {
-    method: "POST",
-    body: JSON.stringify({ enabled: !state.prayer.enabled }),
-  });
+  await api("/api/prayer/toggle", { method: "POST", body: JSON.stringify({ enabled: !state.prayer.enabled }) });
   await loadDashboard();
   showToast("Namoz eslatmasi yangilandi");
 });
@@ -977,10 +1184,7 @@ $("leadTimeOptions").addEventListener("click", async (event) => {
     showToast("Telegram orqali ochilganda saqlanadi");
     return;
   }
-  await api("/api/prayer/lead-time", {
-    method: "POST",
-    body: JSON.stringify({ minutes }),
-  });
+  await api("/api/prayer/lead-time", { method: "POST", body: JSON.stringify({ minutes }) });
   await loadDashboard();
   showToast(`${minutes} daqiqa oldin eslatish saqlandi`);
 });
@@ -989,7 +1193,7 @@ $("prayerTimes").addEventListener("click", async (event) => {
   const button = event.target.closest("[data-prayer-key]");
   if (!button || button.disabled) return;
   const key = button.dataset.prayerKey;
-  const item = state.prayer.times.find((row) => row.key === key);
+  const item = (state.prayer?.times || []).find((row) => row.key === key);
   if (!item) return;
   const enabled = !item.enabled;
   if (demoMode) {
@@ -999,10 +1203,7 @@ $("prayerTimes").addEventListener("click", async (event) => {
     showToast("Telegram orqali ochilganda saqlanadi");
     return;
   }
-  await api("/api/prayer/key", {
-    method: "POST",
-    body: JSON.stringify({ key, enabled }),
-  });
+  await api("/api/prayer/key", { method: "POST", body: JSON.stringify({ key, enabled }) });
   await loadDashboard();
   showToast(`${item.name} eslatmasi ${enabled ? "yoqildi" : "o'chirildi"}`);
 });
@@ -1014,10 +1215,7 @@ $("citySelect").addEventListener("change", async (event) => {
     showToast("Telegram orqali ochilganda saqlanadi");
     return;
   }
-  await api("/api/prayer/city", {
-    method: "POST",
-    body: JSON.stringify({ city: event.target.value }),
-  });
+  await api("/api/prayer/city", { method: "POST", body: JSON.stringify({ city: event.target.value }) });
   await loadDashboard();
   showToast("Shahar yangilandi");
 });
@@ -1025,6 +1223,10 @@ $("citySelect").addEventListener("change", async (event) => {
 $("themeToggleButton").addEventListener("click", () => {
   const current = localStorage.getItem("assistant_theme") === "light" ? "light" : "dark";
   applyTheme(current === "light" ? "dark" : "light");
+});
+
+window.addEventListener("resize", () => {
+  if (activeView === "cards") applyCardWheelTransforms();
 });
 
 if (tg) {

@@ -1,39 +1,75 @@
 :root {
-  --bg: #111217;
-  --panel: #1b1c22;
-  --panel-2: #23242d;
-  --panel-3: #2a2c36;
-  --text: #ffffff;
-  --muted: #a9adbb;
-  --muted-2: #7e8494;
-  --line: rgba(255, 255, 255, 0.08);
-  --blue: #3478f6;
-  --blue-2: #6da5ff;
-  --green: #1d5a46;
-  --green-2: #4de3a5;
-  --red: #711127;
-  --red-2: #ff4d74;
-  --orange: #ff7057;
-  --purple: #8b5cf6;
-  --shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
-  --soft-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
+  --bg: #07080c;
+  --bg-elev: #0c0e14;
+  --panel: #131620;
+  --panel-2: #1a1e2a;
+  --panel-3: #232838;
+  --panel-4: #2c3245;
+
+  --text: #f4f5f8;
+  --text-soft: #d6d9e2;
+  --muted: #8a90a4;
+  --muted-2: #5e6478;
+  --line: rgba(255, 255, 255, 0.06);
+  --line-strong: rgba(255, 255, 255, 0.1);
+
+  --accent: #00d9a0;
+  --accent-2: #4fe9b7;
+  --accent-glow: rgba(0, 217, 160, 0.32);
+  --info: #6ea8fe;
+  --info-2: #a3c4ff;
+  --danger: #ff5c7a;
+  --danger-2: #ff89a0;
+  --warn: #ffb454;
+
+  --grad-card-a: linear-gradient(135deg, #1d2940 0%, #0d1320 60%, #1a2238 100%);
+  --grad-card-b: linear-gradient(135deg, #2a1a3d 0%, #150d22 60%, #2d1a3b 100%);
+  --grad-card-c: linear-gradient(135deg, #0f3a35 0%, #0a1a18 60%, #103634 100%);
+  --grad-card-d: linear-gradient(135deg, #3a1f2c 0%, #1c0e15 60%, #3a1f2c 100%);
+  --grad-card-e: linear-gradient(135deg, #1a2a3a 0%, #0a1320 60%, #21344d 100%);
+
+  --shadow-lg: 0 24px 48px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 14px 32px rgba(0, 0, 0, 0.38);
+  --shadow-sm: 0 6px 14px rgba(0, 0, 0, 0.28);
+  --ring-focus: 0 0 0 3px rgba(0, 217, 160, 0.22);
+
+  --radius-xs: 8px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-xl: 28px;
+  --radius-pill: 999px;
+
+  --ease-out: cubic-bezier(0.22, 0.8, 0.24, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 body.light {
-  --bg: #eaf4fb;
-  --panel: rgba(255, 255, 255, 0.93);
-  --panel-2: #dfeefa;
-  --panel-3: #cde0ef;
-  --text: #102033;
-  --muted: #52677c;
-  --muted-2: #6f8498;
-  --line: rgba(21, 31, 46, 0.1);
-  --green: #d9fbec;
-  --green-2: #0c8b61;
-  --red: #ffe4ea;
-  --red-2: #dc315b;
-  --shadow: 0 18px 38px rgba(34, 50, 84, 0.16);
-  --soft-shadow: 0 10px 24px rgba(34, 50, 84, 0.12);
+  --bg: #f3f5f9;
+  --bg-elev: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f3f5fa;
+  --panel-3: #e8ecf2;
+  --panel-4: #dde2eb;
+
+  --text: #0c111c;
+  --text-soft: #1f2737;
+  --muted: #5a6377;
+  --muted-2: #8a93a7;
+  --line: rgba(13, 23, 41, 0.08);
+  --line-strong: rgba(13, 23, 41, 0.12);
+
+  --accent: #0a9b73;
+  --accent-2: #19b88c;
+  --accent-glow: rgba(10, 155, 115, 0.18);
+  --info: #2c64df;
+  --info-2: #5b87ee;
+  --danger: #d23459;
+  --danger-2: #e76483;
+
+  --shadow-lg: 0 24px 44px rgba(15, 23, 42, 0.12);
+  --shadow-md: 0 14px 26px rgba(15, 23, 42, 0.08);
+  --shadow-sm: 0 4px 10px rgba(15, 23, 42, 0.06);
 }
 
 * {
@@ -48,33 +84,41 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 8% 6%, rgba(29, 90, 70, 0.48), transparent 34%),
-    radial-gradient(circle at 92% 0%, rgba(52, 120, 246, 0.34), transparent 30%),
-    linear-gradient(180deg, #111b20 0%, #111217 36%, #15161c 100%);
   color: var(--text);
+  background:
+    radial-gradient(1100px 600px at 12% -10%, rgba(0, 217, 160, 0.10), transparent 55%),
+    radial-gradient(900px 500px at 95% 0%, rgba(110, 168, 254, 0.08), transparent 50%),
+    radial-gradient(700px 700px at 80% 110%, rgba(120, 84, 200, 0.08), transparent 60%),
+    linear-gradient(180deg, #07080c 0%, #090b11 35%, #07080c 100%);
   font-family:
-    Inter,
+    "Inter",
+    "SF Pro Display",
+    "Segoe UI Variable",
     ui-sans-serif,
     system-ui,
     -apple-system,
     BlinkMacSystemFont,
-    "Segoe UI",
     sans-serif;
+  font-feature-settings: "ss01", "cv11", "tnum";
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  letter-spacing: -0.01em;
 }
 
 body.light {
   background:
-    radial-gradient(circle at 12% 4%, rgba(115, 236, 202, 0.36), transparent 34%),
-    radial-gradient(circle at 88% 0%, rgba(125, 176, 255, 0.28), transparent 30%),
-    linear-gradient(180deg, #eaf4fb 0%, #f4f8fd 42%, #eef6fb 100%);
+    radial-gradient(1000px 600px at 10% -10%, rgba(10, 155, 115, 0.10), transparent 55%),
+    radial-gradient(800px 500px at 95% 0%, rgba(91, 135, 238, 0.10), transparent 50%),
+    linear-gradient(180deg, #f4f6fb 0%, #eef2f8 50%, #f4f6fb 100%);
 }
 
 button,
-select {
+select,
+input,
+textarea {
   font: inherit;
+  color: inherit;
 }
 
 button {
@@ -90,3 +134,7 @@ p {
   margin: 0;
 }
 
+::selection {
+  background: rgba(0, 217, 160, 0.32);
+  color: #ffffff;
+}
