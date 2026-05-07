@@ -19,6 +19,12 @@ class AiAssistantTests(unittest.TestCase):
         text = friendly_ai_error(AiRequestError(429, "You exceeded your quota", "insufficient_quota"))
         self.assertIn("quota", text.lower())
 
+    def test_friendly_archived_project_error(self) -> None:
+        text = friendly_ai_error(
+            AiRequestError(401, "The project you are requesting has been archived", "not_authorized_invalid_project")
+        )
+        self.assertIn("arxivlangan", text.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

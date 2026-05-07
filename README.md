@@ -218,6 +218,8 @@ Bot oddiy savollarga ham API'siz javob beradi: `balansim qancha`, `bugungi xaraj
 
 AI yordamchi ixtiyoriy. `.env` ichida `OPENAI_API_KEY` yozilgan bo'lsa ishlaydi. Xarajatni nazorat qilish uchun har bir oddiy matn APIga yuborilmaydi, faqat aniq komanda ishlaydi:
 
+Tejamkor standart model: `gpt-4.1-nano`. Muhimroq va sifatliroq javob kerak bo'lsa, `.env` ichida `OPENAI_MODEL` ni keyin `gpt-4.1-mini`ga almashtirish mumkin.
+
 ```text
 /ai bugungi xarajatlarimni tahlil qil
 /ai ertaga ishlarimni qanday rejalashtiray?

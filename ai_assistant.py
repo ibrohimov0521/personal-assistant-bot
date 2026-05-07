@@ -25,7 +25,7 @@ def openai_api_key() -> str:
 
 
 def openai_model() -> str:
-    return os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip() or "gpt-5.4-mini"
+    return os.getenv("OPENAI_MODEL", "gpt-4.1-nano").strip() or "gpt-4.1-nano"
 
 
 def openai_configured() -> bool:
@@ -55,6 +55,8 @@ def friendly_ai_error(exc: Exception) -> str:
         return "OpenAI API kaliti ulanmagan. Server .env faylida OPENAI_API_KEY kerak."
     if isinstance(exc, AiRequestError):
         lower = f"{exc.message} {exc.code}".lower()
+        if "archived" in lower or "not_authorized_invalid_project" in lower:
+            return "OpenAI project arxivlangan. Shu project qayta ochilmasa yoki boshqa project kaliti berilmasa API ishlamaydi."
         if exc.status == 429 or "quota" in lower or "rate" in lower:
             return "OpenAI quota yoki limit yetmayapti. Billing/quota faollashgandan keyin ishlaydi."
         if exc.status == 401:
@@ -87,7 +89,7 @@ async def ask_openai(question: str, context: str = "") -> str:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        "max_output_tokens": int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "700")),
+        "max_output_tokens": int(os.getenv("OPENAI_MAX_OUTPUT_TOKENS", "250")),
     }
     timeout = aiohttp.ClientTimeout(total=int(os.getenv("OPENAI_TIMEOUT_SECONDS", "45")))
     headers = {
