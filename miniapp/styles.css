@@ -133,7 +133,8 @@ body[data-active-view="cards"] .hero .hero-avatar {
 
 body[data-active-view="finance"] .hero .hero-username,
 body[data-active-view="extras"] .hero .hero-username,
-body[data-active-view="cards"] .hero .hero-username {
+body[data-active-view="cards"] .hero .hero-username,
+body[data-active-view="home"] .hero.compact .hero-username {
   display: block;
 }
 
