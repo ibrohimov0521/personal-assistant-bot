@@ -50,9 +50,9 @@
   box-shadow: var(--shadow-md);
   overflow: hidden;
   transition:
-    padding 0.36s var(--ease-out),
-    border-radius 0.36s var(--ease-out),
-    box-shadow 0.36s var(--ease-out);
+    padding 0.28s var(--ease-out),
+    border-radius 0.28s var(--ease-out),
+    box-shadow 0.28s var(--ease-out);
 }
 
 /* Compact hero state — applied via JS when the user scrolls past the threshold.
@@ -93,7 +93,7 @@ body.light .hero-aurora {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
-  transition: margin-bottom 0.36s var(--ease-out);
+  transition: margin-bottom 0.28s var(--ease-out);
 }
 
 .hero.compact .hero-top {
@@ -107,10 +107,12 @@ body.light .hero-aurora {
   gap: 4px;
   max-height: 220px;
   opacity: 1;
+  overflow: hidden;
+  will-change: max-height, opacity;
   transition:
-    max-height 0.36s var(--ease-out),
-    opacity 0.22s var(--ease-out),
-    margin 0.36s var(--ease-out);
+    max-height 0.28s var(--ease-out),
+    opacity 0.18s var(--ease-out),
+    margin 0.28s var(--ease-out);
 }
 
 .hero.compact .hero-text {
@@ -138,9 +140,9 @@ body.light .hero-aurora {
   box-shadow: var(--shadow-md), inset 0 0 0 2px rgba(255, 255, 255, 0.18);
   transition:
     transform 0.22s var(--ease-out),
-    width 0.36s var(--ease-out),
-    height 0.36s var(--ease-out),
-    font-size 0.36s var(--ease-out);
+    width 0.28s var(--ease-out),
+    height 0.28s var(--ease-out),
+    font-size 0.28s var(--ease-out);
 }
 
 .hero.compact .hero-avatar {
@@ -224,8 +226,8 @@ h1 {
     transform 0.25s var(--ease-out),
     border-color 0.25s var(--ease-out),
     background 0.25s var(--ease-out),
-    margin-top 0.36s var(--ease-out),
-    padding 0.36s var(--ease-out);
+    margin-top 0.28s var(--ease-out),
+    padding 0.28s var(--ease-out);
 }
 
 .hero.compact .balance-hero {
@@ -256,8 +258,10 @@ h1 {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   max-height: 30px;
+  opacity: 1;
   overflow: hidden;
-  transition: max-height 0.36s var(--ease-out), opacity 0.22s var(--ease-out);
+  will-change: max-height, opacity;
+  transition: max-height 0.28s var(--ease-out), opacity 0.18s var(--ease-out);
 }
 
 .hero.compact .balance-hero-top {
@@ -291,7 +295,7 @@ h1 {
   font-weight: 800;
   line-height: 1.05;
   letter-spacing: -0.02em;
-  transition: font-size 0.36s var(--ease-out);
+  transition: font-size 0.28s var(--ease-out);
 }
 
 .hero.compact .balance-hero strong {
@@ -302,8 +306,10 @@ h1 {
   color: var(--muted-2);
   font-size: 12px;
   max-height: 18px;
+  opacity: 1;
   overflow: hidden;
-  transition: max-height 0.36s var(--ease-out), opacity 0.22s var(--ease-out);
+  will-change: max-height, opacity;
+  transition: max-height 0.28s var(--ease-out), opacity 0.18s var(--ease-out);
 }
 
 .hero.compact .balance-hero small {

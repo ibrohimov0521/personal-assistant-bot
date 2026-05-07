@@ -1281,8 +1281,12 @@ window.addEventListener("resize", () => {
    prevents rapid toggling at the boundary. */
 let heroIsCompact = false;
 let heroScrollPending = false;
-const HERO_COMPACT_ENTER = 56;
-const HERO_COMPACT_EXIT = 32;
+// Tight enter / very-low exit avoids the unstable middle zone that caused
+// flicker when the user paused mid-scroll near the boundary. Once the page
+// has scrolled past 24px the hero stays compact until the user is back
+// within 4px of the top.
+const HERO_COMPACT_ENTER = 24;
+const HERO_COMPACT_EXIT = 4;
 
 function applyHeroState() {
   const y = window.scrollY || window.pageYOffset || 0;
