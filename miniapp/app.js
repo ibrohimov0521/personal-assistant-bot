@@ -51,9 +51,11 @@ function showToast(text) {
   window.setTimeout(() => toast.classList.remove("show"), 2400);
 }
 
-function setAuthNotice(visible) {
+function setAuthNotice(visible, text = "Real ma'lumotlar faqat bot ichidagi Mini App tugmasida ko'rinadi.") {
   const notice = $("authNotice");
   if (!notice) return;
+  const noticeText = $("authNoticeText");
+  if (noticeText) noticeText.textContent = text;
   notice.hidden = !visible;
 }
 
@@ -77,6 +79,20 @@ async function api(path, options = {}) {
   return response.json();
 }
 
+function dashboardErrorMessage(error) {
+  const message = String(error?.message || error);
+  if (message.startsWith("401:")) {
+    return "Mini App sessiyasi topilmadi. Bot ichidagi Mini App tugmasidan qayta oching.";
+  }
+  if (message.startsWith("403:")) {
+    return "Bu Telegram ID uchun Mini App ruxsati yo'q yoki bloklangan.";
+  }
+  if (message.startsWith("500:")) {
+    return "Server xatosi tuzatilmoqda. Bir necha soniyadan keyin yangilang.";
+  }
+  return "Mini App ma'lumot yuklay olmadi";
+}
+
 async function loadDashboard() {
   $("refreshButton").classList.add("spin");
   try {
@@ -87,8 +103,9 @@ async function loadDashboard() {
     console.warn(error);
     state = clone(demoData);
     demoMode = true;
-    setAuthNotice(true);
-    showToast(String(error.message || error).includes("401") ? "Telegram Mini App auth topilmadi" : "Mini App ma'lumot yuklay olmadi");
+    const message = dashboardErrorMessage(error);
+    setAuthNotice(true, message);
+    showToast(message);
   } finally {
     window.setTimeout(() => $("refreshButton").classList.remove("spin"), 380);
   }

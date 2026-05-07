@@ -68,6 +68,7 @@ from fsm_sqlite_storage import SQLiteFSMStorage
 from handlers.admin import AdminHandlerDeps, register_admin_handlers
 from miniapp_api import MiniAppApi, MiniAppContext, miniapp_error_middleware
 from prayer_times import (
+    DEFAULT_PRAYER_KEYS,
     PRAYER_CITIES,
     PRAYER_NAMES,
     calculate_prayer_times,
