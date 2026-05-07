@@ -44,37 +44,37 @@
   --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* TBC-inspired light mode: soft cool grey base with deep navy text and the
-   same emerald accent as dark mode, so brand identity stays consistent
-   across themes. Pure white panels float on the muted background, giving
-   the kind of low-contrast, premium look bank apps use. */
+/* "Light" mode is now a TBC-inspired twilight: deep navy with a soft
+   violet/emerald aurora and the same brand accent as the dark theme.
+   The card and panel surfaces sit slightly above the page so depth comes
+   from layered blue tones rather than pure-white contrast. */
 body.light {
-  --bg: #e6eaf1;
-  --bg-elev: #ffffff;
-  --panel: #ffffff;
-  --panel-2: #f1f4f9;
-  --panel-3: #e2e6ee;
-  --panel-4: #d2d8e2;
+  --bg: #131c30;
+  --bg-elev: #1a2440;
+  --panel: #1a2440;
+  --panel-2: #20294b;
+  --panel-3: #2a3458;
+  --panel-4: #353f68;
 
-  --text: #0c1a2e;
-  --text-soft: #1f2c43;
-  --muted: #5a657a;
-  --muted-2: #8a93a6;
-  --line: rgba(12, 26, 46, 0.08);
-  --line-strong: rgba(12, 26, 46, 0.14);
+  --text: #eef2fa;
+  --text-soft: #ccd5e6;
+  --muted: #8e98b3;
+  --muted-2: #6b7592;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.14);
 
-  --accent: #0e9e7a;
-  --accent-2: #14b58d;
-  --accent-glow: rgba(14, 158, 122, 0.18);
-  --info: #2862dc;
-  --info-2: #4d80e5;
-  --danger: #d2305a;
-  --danger-2: #e25478;
-  --warn: #d68a26;
+  --accent: #00d9a0;
+  --accent-2: #4fe9b7;
+  --accent-glow: rgba(0, 217, 160, 0.30);
+  --info: #6ea8fe;
+  --info-2: #a3c4ff;
+  --danger: #ff5c7a;
+  --danger-2: #ff89a0;
+  --warn: #ffb454;
 
-  --shadow-lg: 0 22px 48px rgba(12, 26, 46, 0.10);
-  --shadow-md: 0 12px 26px rgba(12, 26, 46, 0.07);
-  --shadow-sm: 0 4px 12px rgba(12, 26, 46, 0.05);
+  --shadow-lg: 0 24px 48px rgba(0, 0, 0, 0.50);
+  --shadow-md: 0 14px 30px rgba(0, 0, 0, 0.34);
+  --shadow-sm: 0 6px 14px rgba(0, 0, 0, 0.24);
 }
 
 * {
@@ -113,9 +113,10 @@ body {
 
 body.light {
   background:
-    radial-gradient(1000px 600px at 10% -10%, rgba(14, 158, 122, 0.07), transparent 55%),
-    radial-gradient(800px 500px at 95% 0%, rgba(40, 98, 220, 0.06), transparent 50%),
-    linear-gradient(180deg, #e6eaf1 0%, #eef1f6 50%, #e6eaf1 100%);
+    radial-gradient(1100px 700px at 50% -10%, rgba(140, 100, 220, 0.20), transparent 55%),
+    radial-gradient(900px 600px at 0% 5%, rgba(0, 217, 160, 0.10), transparent 60%),
+    radial-gradient(900px 600px at 100% 5%, rgba(110, 168, 254, 0.10), transparent 60%),
+    linear-gradient(180deg, #131c30 0%, #1a2440 50%, #131c30 100%);
 }
 
 button,

@@ -154,10 +154,6 @@ body[data-active-view="admin"] .app-shell {
   pointer-events: none;
 }
 
-body.light .hero-aurora {
-  opacity: 0.4;
-}
-
 .hero-top {
   position: relative;
   z-index: 1;
@@ -405,12 +401,6 @@ h1 {
   color: var(--text);
   border: 1px solid var(--line);
   transition: transform 0.2s var(--ease-out), background 0.2s var(--ease-out), border-color 0.2s var(--ease-out);
-}
-
-body.light .icon-button,
-body.light .ghost-button {
-  background: rgba(13, 23, 41, 0.04);
-  color: var(--text);
 }
 
 .icon-button:hover,
@@ -770,21 +760,6 @@ h2 {
   color: var(--danger);
 }
 
-body.light .item-icon {
-  background: rgba(13, 23, 41, 0.05);
-  color: var(--text);
-}
-
-body.light .item-icon.income {
-  background: rgba(10, 155, 115, 0.12);
-  color: var(--accent);
-}
-
-body.light .item-icon.expense {
-  background: rgba(210, 52, 89, 0.10);
-  color: var(--danger);
-}
-
 .item-title {
   font-weight: 700;
   font-size: 14px;
@@ -827,10 +802,6 @@ body.light .item-icon.expense {
   color: var(--muted);
   font-size: 13px;
   text-align: center;
-}
-
-body.light .empty {
-  background: rgba(13, 23, 41, 0.02);
 }
 
 /* Pile-up sticky stack — items overlap each other as the page scrolls.
@@ -1087,10 +1058,6 @@ body.light .empty {
   box-shadow: 0 6px 16px rgba(0, 217, 160, 0.2);
 }
 
-body.light .segment.active {
-  color: #ffffff;
-}
-
 /* ──────────────────────────────────────────────────────────
    Finance tools
    ────────────────────────────────────────────────────────── */
@@ -1187,10 +1154,6 @@ select:focus {
   background: linear-gradient(135deg, var(--accent), #00b389);
   border-color: transparent;
   box-shadow: 0 6px 16px rgba(0, 217, 160, 0.2);
-}
-
-body.light .ghost-action.active {
-  color: #ffffff;
 }
 
 .ghost-action.danger {
@@ -1642,10 +1605,6 @@ body.light .ghost-action.active {
   transition: transform 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out), background 0.2s var(--ease-out);
 }
 
-body.light .primary-button {
-  color: #ffffff;
-}
-
 .primary-button:hover {
   box-shadow: 0 14px 30px rgba(0, 217, 160, 0.34);
 }
@@ -1718,10 +1677,6 @@ body.light .primary-button {
   border-color: transparent;
 }
 
-body.light .prayer-time.enabled .toggle-mini {
-  color: #ffffff;
-}
-
 /* ──────────────────────────────────────────────────────────
    Settings & profile rows
    ────────────────────────────────────────────────────────── */
@@ -1761,10 +1716,6 @@ body.light .prayer-time.enabled .toggle-mini {
   color: #ffffff;
   background: linear-gradient(135deg, var(--accent), #00b389);
   border: 0;
-}
-
-body.light .pill-button {
-  color: #ffffff;
 }
 
 .danger-zone {
@@ -1961,7 +1912,7 @@ body.modal-open {
 }
 
 body.light .bottom-nav {
-  background: rgba(255, 255, 255, 0.78);
+  background: rgba(20, 28, 50, 0.78);
 }
 
 .nav-item {
@@ -1995,10 +1946,6 @@ body.light .bottom-nav {
   box-shadow: 0 6px 18px rgba(0, 217, 160, 0.32);
 }
 
-body.light .nav-item.active {
-  color: #ffffff;
-}
-
 .nav-item.active svg {
   color: inherit;
 }
@@ -2028,11 +1975,6 @@ body.light .nav-item.active {
   transition: transform 0.26s var(--ease-out), opacity 0.26s var(--ease-out);
   pointer-events: none;
   backdrop-filter: blur(14px);
-}
-
-body.light .toast {
-  background: rgba(15, 23, 41, 0.92);
-  color: #ffffff;
 }
 
 .toast.show {

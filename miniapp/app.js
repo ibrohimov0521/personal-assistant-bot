@@ -218,10 +218,10 @@ function applyTheme(mode) {
   const label = $("themeModeLabel");
   if (label) label.textContent = nextMode === "light" ? "Kunduzgi rejim" : "Tun rejimi";
   if (tg?.setHeaderColor) {
-    tg.setHeaderColor(nextMode === "light" ? "#e6eaf1" : "#07080c");
+    tg.setHeaderColor(nextMode === "light" ? "#131c30" : "#07080c");
   }
   if (tg?.setBackgroundColor) {
-    tg.setBackgroundColor(nextMode === "light" ? "#e6eaf1" : "#07080c");
+    tg.setBackgroundColor(nextMode === "light" ? "#131c30" : "#07080c");
   }
 }
 
@@ -242,9 +242,11 @@ function renderHeroAvatar() {
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ") || "Foydalanuvchi";
   const letter = (fullName.trim().charAt(0) || "F").toUpperCase();
 
+  // Show the user's display name (first + last from Telegram), not the
+  // @handle. The user explicitly asked for the nick name, not the username.
   const usernameEl = $("heroUsername");
   if (usernameEl) {
-    usernameEl.textContent = user.username ? `@${user.username}` : fullName;
+    usernameEl.textContent = fullName;
   }
   button.textContent = "";
   if (user.photo_url) {
