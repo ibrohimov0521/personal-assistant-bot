@@ -14,6 +14,7 @@ try {
     $pythonFiles = @(
         "assistant_bot.py",
         "access_control.py",
+        "ai_assistant.py",
         "db.py",
         "db_schema.py",
         "finance.py",
@@ -43,7 +44,7 @@ try {
 
     $remoteCommand = @"
 cd $RemoteDir &&
-.venv/bin/python -m py_compile assistant_bot.py handlers/admin.py db_schema.py reminder_store.py prayer_store.py miniapp_api.py miniapp_auth.py finance_store.py user_store.py &&
+.venv/bin/python -m py_compile assistant_bot.py ai_assistant.py handlers/admin.py db_schema.py reminder_store.py prayer_store.py miniapp_api.py miniapp_auth.py finance_store.py user_store.py &&
 .venv/bin/python -m unittest discover -s tests &&
 sudo systemctl restart assistant-bot &&
 sleep 5 &&

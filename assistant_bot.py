@@ -41,6 +41,7 @@ from access_control import (
     is_admin_user,
     permitted_user_ids,
 )
+from ai_assistant import ask_openai, friendly_ai_error, openai_configured, openai_model, ping_openai
 from db import DB_PATH, connect_db, parse_utc, utc_text
 from db_schema import init_db
 from finance import (
@@ -155,6 +156,8 @@ REPEAT_LABELS = {
     "weekly": "Har hafta",
     "monthly": "Har oy",
 }
+
+AI_COOLDOWNS: dict[int, datetime] = {}
 
 
 class ReminderWizard(StatesGroup):
@@ -935,6 +938,57 @@ async def format_category_limits(user_id: int) -> str:
     return "\n".join(lines)
 
 
+async def build_ai_context(user_id: int, chat_id: int) -> str:
+    balances = await get_card_balances(user_id)
+    today_start, today_end, _ = period_range("today")
+    month_start, month_end, _ = period_range("month")
+    today_rows = await get_transactions(user_id, today_start, today_end)
+    month_rows = await get_transactions(user_id, month_start, month_end)
+    reminders = await list_pending_reminder_records(user_id, limit=5)
+    prayer_setting = await get_prayer_setting(user_id, chat_id)
+
+    def totals(rows: list[dict]) -> tuple[int, int]:
+        income = sum(int(row["amount"]) for row in rows if row["type"] == "income")
+        expense = sum(int(row["amount"]) for row in rows if row["type"] == "expense")
+        return income, expense
+
+    today_income, today_expense = totals(today_rows)
+    month_income, month_expense = totals(month_rows)
+    lines = [
+        f"Bugun kirim: {format_money(today_income)}",
+        f"Bugun chiqim: {format_money(today_expense)}",
+        f"Oylik kirim: {format_money(month_income)}",
+        f"Oylik chiqim: {format_money(month_expense)}",
+        f"Karta jami balansi: {format_money(sum(int(row['amount']) for row in balances)) if balances else 'mavjud emas'}",
+        f"Namoz shahri: {prayer_setting['city']}",
+    ]
+    if reminders:
+        reminder_text = "; ".join(f"{format_local(parse_utc(row['due_at']))} - {row['message'][:60]}" for row in reminders[:3])
+        lines.append(f"Yaqin eslatmalar: {reminder_text}")
+    else:
+        lines.append("Yaqin eslatmalar: yo'q")
+    return "\n".join(lines)
+
+
+def ai_cooldown_left(user_id: int) -> int:
+    last = AI_COOLDOWNS.get(user_id)
+    if not last:
+        return 0
+    seconds = int(os.getenv("OPENAI_USER_COOLDOWN_SECONDS", "20"))
+    left = seconds - int((now_local() - last).total_seconds())
+    return max(left, 0)
+
+
+def mark_ai_used(user_id: int) -> None:
+    AI_COOLDOWNS[user_id] = now_local()
+
+
+async def send_long_answer(message: Message, text: str) -> None:
+    chunks = [text[i : i + 3500] for i in range(0, len(text), 3500)] or [text]
+    for chunk in chunks:
+        await message.answer(escape_html(chunk), reply_markup=main_keyboard())
+
+
 register_admin_handlers(
     router,
     AdminHandlerDeps(
@@ -1025,6 +1079,54 @@ async def finance_category_limit(message: Message, command: CommandObject) -> No
 @router.message(Command("limits"))
 async def finance_limits(message: Message) -> None:
     await message.answer(await format_category_limits(user_id_from(message)), reply_markup=main_keyboard())
+
+
+@router.message(Command("ai_status"))
+async def ai_status(message: Message) -> None:
+    if not openai_configured():
+        await message.answer(
+            "OpenAI API ulanmagan. Server .env faylida OPENAI_API_KEY yozilishi kerak.",
+            reply_markup=main_keyboard(),
+        )
+        return
+    status = await message.answer(f"OpenAI tekshirilyapti...\nModel: {hcode(openai_model())}")
+    try:
+        answer = await ping_openai()
+        await status.edit_text(f"OpenAI ishlayapti.\nModel: {hcode(openai_model())}\nJavob: {escape_html(answer)}")
+    except Exception as exc:
+        await status.edit_text(f"OpenAI ishlamadi.\n\n{escape_html(friendly_ai_error(exc))}")
+
+
+@router.message(Command("ai"))
+async def ai_answer(message: Message, command: CommandObject) -> None:
+    question = command_arg_text(command)
+    if not question:
+        await message.answer(
+            f"AI yordamchi uchun savolni shu ko'rinishda yozing:\n{hcode('/ai bugungi xarajatlarimni tahlil qil')}",
+            reply_markup=main_keyboard(),
+        )
+        return
+    if len(question) > 1200:
+        await message.answer("Savol juda uzun. 1200 belgidan qisqaroq yozing.", reply_markup=main_keyboard())
+        return
+    user_id = user_id_from(message)
+    left = ai_cooldown_left(user_id)
+    if left:
+        await message.answer(f"AI limit: {left} soniyadan keyin qayta urinib ko'ring.", reply_markup=main_keyboard())
+        return
+    mark_ai_used(user_id)
+    status = await message.answer("AI javob tayyorlayapti...")
+    try:
+        context = await build_ai_context(user_id, message.chat.id)
+        answer = await ask_openai(question, context)
+    except Exception as exc:
+        await status.edit_text(escape_html(friendly_ai_error(exc)))
+        return
+    try:
+        await status.delete()
+    except Exception:
+        await status.edit_text("AI javob tayyor.")
+    await send_long_answer(message, answer)
 
 
 @router.message(CommandStart())

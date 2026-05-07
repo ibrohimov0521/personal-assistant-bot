@@ -10,6 +10,7 @@ Telegram bot: eslatmalar va shaxsiy moliya hisobi.
 - Haftalik va oylik hisobot chiqaradi.
 - Mini App ichida operatsiyani tahrirlash/o'chirish, kunlik limit, CSV export va ma'lumotlarni tozalash bor.
 - Shahar bo'yicha namoz vaqtlarini ko'rsatadi va yoqsangiz eslatib turadi.
+- OpenAI API ulangan bo'lsa, `/ai savol` orqali moliya/eslatma konteksti bilan AI yordamchi javob beradi.
 - Telegram Mini App dashboard: balanslar, moliya, eslatmalar va namoz vaqtlari bitta web interfeysda.
 - Har bir foydalanuvchi ma'lumotlari `telegram user_id` bo'yicha alohida saqlanadi.
 
@@ -212,6 +213,18 @@ Moliya uchun tezkor buyruqlar:
 ```
 
 Bot oddiy savollarga ham API'siz javob beradi: `balansim qancha`, `bugungi xarajat`, `haftalik hisobot`, `namoz vaqtlari`, `oxirgi operatsiyalar` kabi matnlarni yozish kifoya.
+
+## AI yordamchi
+
+AI yordamchi ixtiyoriy. `.env` ichida `OPENAI_API_KEY` yozilgan bo'lsa ishlaydi. Xarajatni nazorat qilish uchun har bir oddiy matn APIga yuborilmaydi, faqat aniq komanda ishlaydi:
+
+```text
+/ai bugungi xarajatlarimni tahlil qil
+/ai ertaga ishlarimni qanday rejalashtiray?
+/ai_status
+```
+
+Bot AIga qisqa kontekst beradi: bugungi/oylik kirim-chiqim, umumiy karta balansi, yaqin eslatmalar va namoz shahri. To'liq bank tarixi avtomatik yuborilmaydi.
 
 Mini App ichida moliya bo'limidan:
 
