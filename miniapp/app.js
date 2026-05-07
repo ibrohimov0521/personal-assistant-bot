@@ -1290,25 +1290,35 @@ window.addEventListener("resize", () => {
   if (activeView === "cards") applyCardWheelTransforms();
 });
 
-/* Sticky hero collapse — shrinks the header when the page scrolls past the
-   threshold and restores it when the user scrolls back to the top. Hysteresis
-   prevents rapid toggling at the boundary. */
+/* Sticky hero collapse with anti-flicker cooldown.
+   The collapse changes the hero's height by ~140px which shifts everything
+   below it. When the user paused mid-scroll near the boundary, that shift
+   would push their scroll position back across the threshold and the state
+   would oscillate. Two defences:
+     1. Wide hysteresis gap (50→6) so casual scroll noise can't cross both
+        boundaries
+     2. Time lock equal to the morph duration — once a toggle has fired we
+        ignore further scroll events until the layout has had a chance to
+        settle. */
 let heroIsCompact = false;
 let heroScrollPending = false;
-// Tight enter / very-low exit avoids the unstable middle zone that caused
-// flicker when the user paused mid-scroll near the boundary. Once the page
-// has scrolled past 24px the hero stays compact until the user is back
-// within 4px of the top.
-const HERO_COMPACT_ENTER = 24;
-const HERO_COMPACT_EXIT = 4;
+let heroLastToggleAt = 0;
+const HERO_COMPACT_ENTER = 50;
+const HERO_COMPACT_EXIT = 6;
+const HERO_TOGGLE_COOLDOWN = 380;
 
 function applyHeroState() {
+  const now = performance.now ? performance.now() : Date.now();
+  if (now - heroLastToggleAt < HERO_TOGGLE_COOLDOWN) return;
+
   const y = window.scrollY || window.pageYOffset || 0;
   let want = heroIsCompact;
   if (!heroIsCompact && y > HERO_COMPACT_ENTER) want = true;
   else if (heroIsCompact && y < HERO_COMPACT_EXIT) want = false;
+
   if (want !== heroIsCompact) {
     heroIsCompact = want;
+    heroLastToggleAt = now;
     document.querySelector(".hero")?.classList.toggle("compact", want);
   }
 }
