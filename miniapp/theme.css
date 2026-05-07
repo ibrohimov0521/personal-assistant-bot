@@ -144,3 +144,31 @@ p {
   background: rgba(0, 217, 160, 0.32);
   color: #ffffff;
 }
+
+/* Atmospheric photo background — sits behind everything in a fixed layer
+   so it stays put as the page scrolls. The ::after dark overlay keeps
+   the foreground content readable regardless of the photo's exposure.
+   If either image is missing the layer simply shows the page bg color
+   underneath. Drop assets in miniapp/assets/. */
+.bg-photo {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(180deg, rgba(7, 8, 12, 0.42) 0%, rgba(7, 8, 12, 0.86) 78%, rgba(7, 8, 12, 0.96) 100%),
+    radial-gradient(80% 70% at 50% 110%, rgba(7, 8, 12, 0.85), transparent 60%),
+    url("./assets/bg-night.jpg");
+  background-size: auto, auto, cover;
+  background-position: center, center, center;
+  background-repeat: no-repeat, no-repeat, no-repeat;
+  pointer-events: none;
+  filter: saturate(1.05);
+}
+
+body.light .bg-photo {
+  background-image:
+    linear-gradient(180deg, rgba(15, 22, 42, 0.34) 0%, rgba(19, 28, 48, 0.78) 70%, rgba(19, 28, 48, 0.96) 100%),
+    radial-gradient(80% 70% at 50% 110%, rgba(19, 28, 48, 0.85), transparent 60%),
+    url("./assets/bg-day.jpg");
+}
