@@ -542,20 +542,20 @@ function bankCardHtml(item, index) {
   const updated = formatDateTime(item.updated_at) || "—";
   const gradient = cardGradientFor(`${label}-${last4}-${index}`);
   return `<article class="bank-card" style="--card-bg:${gradient}" data-card-index="${index}">
-    <div class="bank-card-top">
-      <span class="bank-card-brand">${escapeHtml(brand)}</span>
+    <div class="bank-card-row">
       <span class="bank-card-chip" aria-hidden="true"></span>
-    </div>
-    <div class="bank-card-balance">
-      <span>Balans</span>
-      <strong>${escapeHtml(amount)}</strong>
-    </div>
-    <div class="bank-card-bottom">
-      <div class="bank-card-number">•••• •••• •••• ${escapeHtml(last4)}</div>
-      <div class="bank-card-meta">
-        <strong>${escapeHtml(label)}</strong>
-        <span>${escapeHtml(updated)}</span>
+      <div class="bank-card-info">
+        <span class="bank-card-brand">${escapeHtml(brand)}</span>
+        <span class="bank-card-label">${escapeHtml(label)}</span>
       </div>
+      <div class="bank-card-balance">
+        <span>Balans</span>
+        <strong>${escapeHtml(amount)}</strong>
+      </div>
+    </div>
+    <div class="bank-card-row foot">
+      <span class="bank-card-number">•••• ${escapeHtml(last4)}</span>
+      <span class="bank-card-meta">${escapeHtml(updated)}</span>
     </div>
   </article>`;
 }
@@ -618,15 +618,17 @@ function applyCardWheelTransforms() {
   cards.forEach((card) => {
     const rect = card.getBoundingClientRect();
     const cardCenter = rect.top + rect.height / 2;
-    const distRel = clamp((cardCenter - center) / rect.height, -2.5, 2.5);
+    const distRel = clamp((cardCenter - center) / rect.height, -3, 3);
     const abs = Math.abs(distRel);
 
-    const rotateX = clamp(distRel * -28, -55, 55);
-    const translateZ = -abs * 90;
-    const translateY = distRel * 6;
-    const scale = 1 - Math.min(0.18, abs * 0.10);
-    const opacity = clamp(1 - abs * 0.40, 0.18, 1);
-    const blur = abs > 1.2 ? Math.min(4, (abs - 1.2) * 4) : 0;
+    // Gentler curve so the cards directly above and below the centre stay
+    // clearly visible — the user wants the deck behind to peek through.
+    const rotateX = clamp(distRel * -18, -42, 42);
+    const translateZ = -abs * 60;
+    const translateY = distRel * 4;
+    const scale = 1 - Math.min(0.18, abs * 0.07);
+    const opacity = clamp(1 - abs * 0.24, 0.25, 1);
+    const blur = abs > 1.6 ? Math.min(3, (abs - 1.6) * 3) : 0;
 
     card.style.transform = `translate3d(0, ${translateY}px, ${translateZ}px) rotateX(${rotateX}deg) scale(${scale})`;
     card.style.opacity = opacity.toFixed(3);
