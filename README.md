@@ -141,7 +141,7 @@ Muhim: userlardan Telegram login kodi yoki 2FA parolini bot ichida so'ramang. Ha
 TG_API_ID=my.telegram.org_api_id
 TG_API_HASH=my.telegram.org_api_hash
 ASSISTANT_BOT_USERNAME=@sizning_assistant_botingiz
-SOURCE_BOT_USERNAMES=@UzcardBot,@HumoBot
+SOURCE_BOT_USERNAMES=@CardXabarBot,@HUMOcardbot
 ```
 
 `TG_API_ID` va `TG_API_HASH` olish:

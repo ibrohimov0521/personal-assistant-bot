@@ -1,11 +1,10 @@
 # Mini App background photos
 
-Drop two photos here to get the cinematic backgrounds wired up by `theme.css`:
+Drop a photo here to get the cinematic background wired up by `theme.css`:
 
 | File | Used in | Suggested look |
 |------|---------|----------------|
-| `bg-night.jpg` | Default (tungi) theme | Deep night sky, atmospheric, Tashkent landmark |
-| `bg-day.jpg` | Light (kunduzgi) theme | Twilight / blue hour, slight warm horizon |
+| `bg-day.jpg` | Mini App background | Twilight / blue hour, slight warm horizon |
 
 ## Sizing
 
@@ -25,7 +24,7 @@ Do **not** drop in stock photos with iStock / Shutterstock / Adobe Stock waterma
 
 ## After dropping the files
 
-1. `git add miniapp/assets/bg-night.jpg miniapp/assets/bg-day.jpg`
+1. `git add miniapp/assets/bg-day.jpg`
 2. `git commit -m "Add background photos"`
 3. `git push origin main`
 4. On the server: `git pull && sudo systemctl restart assistant-bot`

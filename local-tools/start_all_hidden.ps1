@@ -120,7 +120,12 @@ function Start-CloudflareTunnel {
 }
 
 if (-not (Test-Path -LiteralPath $Python)) {
-    py -m venv "$Project\.venv"
+    $SystemPython = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
+    if (Test-Path -LiteralPath $SystemPython) {
+        & $SystemPython -m venv "$Project\.venv"
+    } else {
+        py -m venv "$Project\.venv"
+    }
 }
 
 Stop-MatchingProcess @("assistant_bot.py", "forwarder.py")
@@ -148,7 +153,14 @@ if ($cloudflaredRunning -and $currentUrl -and $currentUrlHealthy) {
 }
 
 Start-HiddenCommand -Command "`"$Python`" assistant_bot.py" -LogPath $BotLog
-Start-HiddenCommand -Command "`"$Python`" forwarder.py" -LogPath $ForwarderLog
+
+$SessionFile = Join-Path $Project "user_session.session"
+if (Test-Path -LiteralPath $SessionFile) {
+    Start-HiddenCommand -Command "`"$Python`" forwarder.py" -LogPath $ForwarderLog
+} else {
+    "Forwarder login qilinmagan. Avval ko'rinadigan terminalda .\.venv\Scripts\python.exe forwarder.py ni ishga tushirib Telegram telefon/kod bilan login qiling." |
+        Set-Content -LiteralPath $ForwarderLog -Encoding UTF8
+}
 
 Start-Sleep -Seconds 4
 & (Join-Path $ToolsDir "status_all.ps1")

@@ -158,7 +158,7 @@ p {
   background-image:
     linear-gradient(180deg, rgba(7, 8, 12, 0.42) 0%, rgba(7, 8, 12, 0.86) 78%, rgba(7, 8, 12, 0.96) 100%),
     radial-gradient(80% 70% at 50% 110%, rgba(7, 8, 12, 0.85), transparent 60%),
-    url("./assets/bg-night.jpg");
+    url("./assets/bg-day.jpg");
   background-size: auto, auto, cover;
   background-position: center, center, center;
   background-repeat: no-repeat, no-repeat, no-repeat;

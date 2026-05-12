@@ -193,10 +193,13 @@ def main_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
-def miniapp_inline_keyboard() -> InlineKeyboardMarkup:
+def miniapp_inline_keyboard() -> InlineKeyboardMarkup | None:
+    url = mini_app_url()
+    if not url.startswith("https://"):
+        return None
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Mini Appni ochish", web_app=WebAppInfo(url=mini_app_url()))]
+            [InlineKeyboardButton(text="Mini Appni ochish", web_app=WebAppInfo(url=url))]
         ]
     )
 

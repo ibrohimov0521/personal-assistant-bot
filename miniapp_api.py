@@ -117,7 +117,11 @@ class MiniAppApi:
         filename = request.match_info["filename"]
         path = (self.ctx.miniapp_dir / filename).resolve()
         root = self.ctx.miniapp_dir.resolve()
-        if not str(path).startswith(str(root)) or not path.exists() or not path.is_file():
+        try:
+            path.relative_to(root)
+        except ValueError:
+            raise web.HTTPNotFound()
+        if not path.exists() or not path.is_file():
             raise web.HTTPNotFound()
         return web.FileResponse(path, headers=no_store_headers())
 
