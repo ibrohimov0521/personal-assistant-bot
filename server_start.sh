@@ -51,7 +51,7 @@ else
   fi
 fi
 
-.venv/bin/python assistant_bot.py >>"$BOT_LOG" 2>&1 &
+python assistant_bot.py >>"$BOT_LOG" 2>&1 &
 BOT_PID=$!
 set +e
 wait "$BOT_PID"
