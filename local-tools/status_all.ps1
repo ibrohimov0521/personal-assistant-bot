@@ -1,5 +1,5 @@
 $ToolsDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$patterns = @("assistant_bot.py", "forwarder.py", "cloudflared.exe")
+$patterns = @("assistant_bot.py", "cloudflared.exe")
 
 foreach ($pattern in $patterns) {
     $processes = Get-CimInstance Win32_Process | Where-Object {
@@ -13,7 +13,6 @@ foreach ($pattern in $patterns) {
     }
     $name = switch ($pattern) {
         "assistant_bot.py" { "Bot" }
-        "forwarder.py" { "Forwarder" }
         default { "Cloudflare tunnel" }
     }
     if ($processes) {

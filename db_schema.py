@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import aiosqlite
 
+from chores import SUNDAY_CLEANING_PAIRS, TRASH_MEMBERS
 from db import SQLITE_TIMEOUT_SECONDS, connect_db
 
 
@@ -35,72 +36,6 @@ async def init_db() -> None:
             ON reminders(status, due_at)
             """
         )
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                occurred_at TEXT NOT NULL,
-                type TEXT NOT NULL,
-                amount INTEGER NOT NULL,
-                currency TEXT NOT NULL DEFAULT 'UZS',
-                source TEXT,
-                card_last4 TEXT,
-                description TEXT,
-                category TEXT,
-                balance_after INTEGER,
-                raw_text TEXT NOT NULL
-            )
-            """
-        )
-        await db.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_transactions_user_date
-            ON transactions(user_id, occurred_at)
-            """
-        )
-        await db.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_transactions_dedupe
-            ON transactions(user_id, occurred_at, type, amount, card_last4)
-            """
-        )
-        await db.execute("UPDATE transactions SET raw_text = '' WHERE raw_text <> ''")
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS card_balances (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                source TEXT NOT NULL,
-                card_last4 TEXT NOT NULL,
-                bank TEXT,
-                owner TEXT,
-                amount INTEGER NOT NULL,
-                currency TEXT NOT NULL DEFAULT 'UZS',
-                raw_text TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                UNIQUE(user_id, card_last4)
-            )
-            """
-        )
-        await db.execute(
-            """
-            DELETE FROM card_balances
-            WHERE id NOT IN (
-                SELECT MAX(id)
-                FROM card_balances
-                GROUP BY user_id, card_last4
-            )
-            """
-        )
-        await db.execute(
-            """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_card_balances_user_last4
-            ON card_balances(user_id, card_last4)
-            """
-        )
-        await db.execute("UPDATE card_balances SET raw_text = '' WHERE raw_text <> ''")
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS prayer_settings (
@@ -146,12 +81,22 @@ async def init_db() -> None:
                 last_name TEXT,
                 username TEXT,
                 language_code TEXT,
+                photo_url TEXT NOT NULL DEFAULT '',
+                phone_number TEXT NOT NULL DEFAULT '',
                 is_bot INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
             """
         )
+        for column_sql in (
+            "ALTER TABLE user_profiles ADD COLUMN photo_url TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE user_profiles ADD COLUMN phone_number TEXT NOT NULL DEFAULT ''",
+        ):
+            try:
+                await db.execute(column_sql)
+            except Exception:
+                pass
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS audit_logs (
@@ -172,12 +117,63 @@ async def init_db() -> None:
         )
         await db.execute(
             """
-            CREATE TABLE IF NOT EXISTS daily_report_sent (
-                user_id INTEGER NOT NULL,
-                report_date TEXT NOT NULL,
-                sent_at TEXT NOT NULL,
-                PRIMARY KEY (user_id, report_date)
+            CREATE TABLE IF NOT EXISTS group_chore_settings (
+                chat_id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL DEFAULT '',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             )
             """
         )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS group_chore_sent (
+                chat_id INTEGER NOT NULL,
+                chore_key TEXT NOT NULL,
+                sent_date TEXT NOT NULL,
+                sent_at TEXT NOT NULL,
+                PRIMARY KEY (chat_id, chore_key, sent_date)
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS group_chore_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS group_chore_pairs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                first_name TEXT NOT NULL,
+                second_name TEXT NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        rows = await db.execute_fetchall("SELECT COUNT(*) FROM group_chore_members")
+        if not rows or int(rows[0][0]) == 0:
+            await db.executemany(
+                """
+                INSERT INTO group_chore_members (name, position, created_at)
+                VALUES (?, ?, datetime('now'))
+                """,
+                [(name, index) for index, name in enumerate(TRASH_MEMBERS)],
+            )
+        rows = await db.execute_fetchall("SELECT COUNT(*) FROM group_chore_pairs")
+        if not rows or int(rows[0][0]) == 0:
+            await db.executemany(
+                """
+                INSERT INTO group_chore_pairs (first_name, second_name, position, created_at)
+                VALUES (?, ?, ?, datetime('now'))
+                """,
+                [(first, second, index) for index, (first, second) in enumerate(SUNDAY_CLEANING_PAIRS)],
+            )
         await db.commit()

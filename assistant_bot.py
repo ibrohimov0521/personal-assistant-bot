@@ -42,6 +42,14 @@ from access_control import (
     permitted_user_ids,
 )
 from ai_assistant import ask_openai, friendly_ai_error, openai_configured, openai_model, ping_openai
+from chores import (
+    chore_member_for,
+    cleaning_pair_for,
+    format_cleaning_message_for_pair,
+    format_trash_message_for,
+    normalize_telegram_username,
+    trash_member_for,
+)
 from db import DB_PATH, connect_db, parse_utc, utc_text
 from db_schema import init_db
 from finance import (
@@ -55,6 +63,7 @@ from finance import (
 from finance_store import (
     delete_transaction,
     export_transactions_csv_file,
+    export_transactions_xlsx_file,
     get_card_balances,
     get_category_limits,
     get_transaction_by_id,
@@ -97,6 +106,7 @@ from reminder_store import (
     list_pending_reminder_records,
     list_reminders,
     mark_reminder_sent,
+    update_reminder,
 )
 from user_store import (
     add_audit_log,
@@ -131,6 +141,7 @@ MAIN_HELP = "Yordam"
 BACK = "Orqaga"
 CANCEL = "Bekor qilish"
 MAIN_MENU = "Asosiy menyu"
+FINANCE_ARCHIVED_MESSAGE = "Moliya bo'limi arxivlandi va botdan olib tashlandi."
 
 REMINDER_ADD = "Eslatma qo'shish"
 REMINDER_LIST = "Eslatmalarim"
@@ -279,11 +290,18 @@ async def reject_blocked(message: Message) -> None:
     and message.from_user.id not in permitted_user_ids()
 )
 async def reject_not_allowed(message: Message) -> None:
+    if message.chat.type in {"group", "supergroup"} and not (message.text or "").startswith("/"):
+        return
     user_id = user_id_from(message)
     await message.answer(
         "Bu botdan foydalanish uchun sizga ruxsat berilmagan.\n\n"
         f"Adminga yuboriladigan Telegram ID: {hcode(str(user_id))}"
     )
+
+
+@router.message(lambda message: message.chat.type in {"group", "supergroup"} and not (message.text or "").startswith("/"))
+async def ignore_group_chatter(message: Message) -> None:
+    return
 
 
 def user_id_from(message: Message) -> int:
@@ -482,6 +500,176 @@ async def mark_daily_report_sent(user_id: int, report_date: date) -> None:
         await db.commit()
 
 
+async def enable_group_chores(chat_id: int, title: str = "") -> None:
+    now = utc_text()
+    async with connect_db() as db:
+        await db.execute(
+            """
+            INSERT INTO group_chore_settings (chat_id, title, enabled, created_at, updated_at)
+            VALUES (?, ?, 1, ?, ?)
+            ON CONFLICT(chat_id) DO UPDATE SET
+                title = excluded.title,
+                enabled = 1,
+                updated_at = excluded.updated_at
+            """,
+            (chat_id, title[:120], now, now),
+        )
+        await db.commit()
+
+
+async def disable_group_chores(chat_id: int) -> None:
+    async with connect_db() as db:
+        await db.execute(
+            "UPDATE group_chore_settings SET enabled = 0, updated_at = ? WHERE chat_id = ?",
+            (utc_text(), chat_id),
+        )
+        await db.commit()
+
+
+async def active_group_chore_chats() -> list[int]:
+    async with connect_db() as db:
+        rows = await db.execute_fetchall(
+            "SELECT chat_id FROM group_chore_settings WHERE enabled = 1"
+        )
+    return [int(row[0]) for row in rows]
+
+
+async def was_group_chore_sent(chat_id: int, chore_key: str, sent_date: date) -> bool:
+    async with connect_db() as db:
+        rows = await db.execute_fetchall(
+            """
+            SELECT 1
+            FROM group_chore_sent
+            WHERE chat_id = ? AND chore_key = ? AND sent_date = ?
+            LIMIT 1
+            """,
+            (chat_id, chore_key, sent_date.isoformat()),
+        )
+    return bool(rows)
+
+
+async def mark_group_chore_sent(chat_id: int, chore_key: str, sent_date: date) -> None:
+    async with connect_db() as db:
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO group_chore_sent (chat_id, chore_key, sent_date, sent_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (chat_id, chore_key, sent_date.isoformat(), utc_text()),
+        )
+        await db.commit()
+
+
+async def chore_members() -> list[dict[str, Any]]:
+    async with connect_db() as db:
+        rows = await db.execute_fetchall(
+            """
+            SELECT id, name, position
+            FROM group_chore_members
+            ORDER BY position, id
+            """
+        )
+    return [{"id": int(row[0]), "name": row[1], "position": int(row[2])} for row in rows]
+
+
+async def chore_member_names() -> list[str]:
+    return [row["name"] for row in await chore_members()]
+
+
+async def chore_pairs() -> list[dict[str, Any]]:
+    async with connect_db() as db:
+        rows = await db.execute_fetchall(
+            """
+            SELECT id, first_name, second_name, position
+            FROM group_chore_pairs
+            ORDER BY position, id
+            """
+        )
+    return [
+        {"id": int(row[0]), "first_name": row[1], "second_name": row[2], "position": int(row[3])}
+        for row in rows
+    ]
+
+
+async def chore_pair_names() -> list[tuple[str, str]]:
+    return [(row["first_name"], row["second_name"]) for row in await chore_pairs()]
+
+
+async def add_chore_member(name: str) -> dict[str, Any]:
+    cleaned = normalize_telegram_username(name)
+    async with connect_db() as db:
+        rows = await db.execute_fetchall("SELECT COALESCE(MAX(position), -1) + 1 FROM group_chore_members")
+        position = int(rows[0][0]) if rows else 0
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO group_chore_members (name, position, created_at)
+            VALUES (?, ?, ?)
+            """,
+            (cleaned, position, utc_text()),
+        )
+        await db.commit()
+    return {"members": await chore_members(), "pairs": await chore_pairs()}
+
+
+async def delete_chore_member(member_id: int) -> dict[str, Any]:
+    async with connect_db() as db:
+        await db.execute("DELETE FROM group_chore_members WHERE id = ?", (member_id,))
+        await db.commit()
+    return {"members": await chore_members(), "pairs": await chore_pairs()}
+
+
+async def add_chore_pair(first_name: str, second_name: str) -> dict[str, Any]:
+    first = normalize_telegram_username(first_name)
+    second = normalize_telegram_username(second_name)
+    async with connect_db() as db:
+        rows = await db.execute_fetchall("SELECT COALESCE(MAX(position), -1) + 1 FROM group_chore_pairs")
+        position = int(rows[0][0]) if rows else 0
+        await db.execute(
+            """
+            INSERT INTO group_chore_pairs (first_name, second_name, position, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (first, second, position, utc_text()),
+        )
+        await db.commit()
+    return {"members": await chore_members(), "pairs": await chore_pairs()}
+
+
+async def delete_chore_pair(pair_id: int) -> dict[str, Any]:
+    async with connect_db() as db:
+        await db.execute("DELETE FROM group_chore_pairs WHERE id = ?", (pair_id,))
+        await db.commit()
+    return {"members": await chore_members(), "pairs": await chore_pairs()}
+
+
+async def group_chore_payload() -> dict[str, Any]:
+    members = await chore_members()
+    pairs = await chore_pairs()
+    names = [row["name"] for row in members]
+    now = now_local()
+    today = now.date()
+    sunday_hour = int(os.getenv("GROUP_CHORE_SUNDAY_HOUR", "10"))
+    days_until_sunday = (6 - today.weekday()) % 7
+    next_sunday = today + timedelta(days=days_until_sunday)
+    if today.weekday() == 6 and now.hour >= sunday_hour:
+        next_sunday = today + timedelta(days=7)
+    next_pair = cleaning_pair_for([(row["first_name"], row["second_name"]) for row in pairs], next_sunday)
+    following_pair = cleaning_pair_for(
+        [(row["first_name"], row["second_name"]) for row in pairs],
+        next_sunday + timedelta(days=7),
+    )
+    return {
+        "members": members,
+        "pairs": pairs,
+        "today_member": chore_member_for(names, today),
+        "tomorrow_member": chore_member_for(names, today + timedelta(days=1)),
+        "next_cleaning_date": next_sunday.isoformat(),
+        "next_cleaning_pair": list(next_pair) if next_pair else [],
+        "following_cleaning_pair": list(following_pair) if following_pair else [],
+        "schedule_text": "Musor: 08:00 va 20:00. Yakshanba tozaligi: 10:00.",
+    }
+
+
 def balance_label(row: dict) -> str:
     parts = [row.get("source", "CARD")]
     if row.get("bank"):
@@ -555,6 +743,29 @@ def json_money(amount: int) -> str:
     return format_money(amount)
 
 
+def next_prayer_payload(city: str, now: datetime) -> dict[str, str]:
+    today_times = calculate_prayer_times(city, now.date())
+    for key in ["fajr", "dhuhr", "asr", "maghrib", "isha"]:
+        prayer_time = today_times[key]
+        if prayer_time >= now:
+            return {
+                "key": key,
+                "name": PRAYER_NAMES[key],
+                "time": format_time_only(prayer_time),
+                "iso": json_dt(prayer_time),
+                "day_label": "Bugun",
+            }
+    tomorrow_times = calculate_prayer_times(city, now.date() + timedelta(days=1))
+    prayer_time = tomorrow_times["fajr"]
+    return {
+        "key": "fajr",
+        "name": PRAYER_NAMES["fajr"],
+        "time": format_time_only(prayer_time),
+        "iso": json_dt(prayer_time),
+        "day_label": "Ertaga",
+    }
+
+
 def transaction_json(row: dict) -> dict:
     return {
         "id": row["id"],
@@ -603,16 +814,7 @@ async def dashboard_payload(user_id: int, chat_id: int | None = None) -> dict:
     daily_report_enabled = (await get_user_setting(user_id, "daily_report_enabled", "1")) != "0"
     category_limits = await get_category_limits(user_id)
     now = now_local()
-    next_prayer = None
-    for key in ["fajr", "dhuhr", "asr", "maghrib", "isha"]:
-        if prayer_times[key] >= now:
-            next_prayer = {
-                "key": key,
-                "name": PRAYER_NAMES[key],
-                "time": format_time_only(prayer_times[key]),
-                "iso": json_dt(prayer_times[key]),
-            }
-            break
+    next_prayer = next_prayer_payload(prayer_setting["city"], now)
 
     def totals(rows: list[dict]) -> dict:
         income = sum(row["amount"] for row in rows if row["type"] == "income")
@@ -640,8 +842,11 @@ async def dashboard_payload(user_id: int, chat_id: int | None = None) -> dict:
         "current_user": {
             "user_id": user_id,
             "name": (user_profile or {}).get("first_name", "") if user_profile else "",
+            "first_name": (user_profile or {}).get("first_name", "") if user_profile else "",
             "last_name": (user_profile or {}).get("last_name", "") if user_profile else "",
             "username": (user_profile or {}).get("username", "") if user_profile else "",
+            "photo_url": (user_profile or {}).get("photo_url", "") if user_profile else "",
+            "phone_number": (user_profile or {}).get("phone_number", "") if user_profile else "",
             "chat_id": (user_profile or {}).get("chat_id") if user_profile else None,
             "language_code": (user_profile or {}).get("language_code", "") if user_profile else "",
         },
@@ -650,6 +855,7 @@ async def dashboard_payload(user_id: int, chat_id: int | None = None) -> dict:
             "audit_logs": await list_audit_logs(20) if is_admin else [],
             "allowed_count": len(allowed_user_ids()),
             "blocked_count": len(blocked_user_ids()),
+            "chores": await group_chore_payload() if is_admin else {},
         },
         "balances": [
             {
@@ -711,7 +917,18 @@ async def dashboard_payload(user_id: int, chat_id: int | None = None) -> dict:
     }
 
 
-async def start_miniapp_server() -> web.AppRunner:
+async def send_transactions_export(bot: Bot, user_id: int, period: str, tx_type: str) -> dict:
+    path, count = await export_transactions_xlsx_file(user_id, period, tx_type)
+    type_label = {"income": "kirim", "expense": "chiqim"}.get(tx_type, "barcha")
+    await bot.send_document(
+        user_id,
+        FSInputFile(path),
+        caption=f"Excel export tayyor. Filtr: {period or 'all'} / {type_label}. Operatsiyalar: {count} ta.",
+    )
+    return {"filename": path.name, "count": count}
+
+
+async def start_miniapp_server(bot: Bot) -> web.AppRunner:
     app = web.Application(middlewares=[miniapp_error_middleware])
     api = MiniAppApi(
         MiniAppContext(
@@ -722,8 +939,15 @@ async def start_miniapp_server() -> web.AppRunner:
             list_audit_logs=list_audit_logs,
             add_audit_log=add_audit_log,
             delete_reminder=delete_reminder,
+            update_reminder=update_reminder,
+            send_transactions_export=lambda user_id, period, tx_type: send_transactions_export(bot, user_id, period, tx_type),
             get_prayer_setting=get_prayer_setting,
             save_prayer_setting=save_prayer_setting,
+            group_chore_payload=group_chore_payload,
+            add_chore_member=add_chore_member,
+            delete_chore_member=delete_chore_member,
+            add_chore_pair=add_chore_pair,
+            delete_chore_pair=delete_chore_pair,
         )
     )
     api.register_routes(app)
@@ -766,22 +990,17 @@ async def bot_stats_text() -> str:
         """
         SELECT COUNT(DISTINCT user_id)
         FROM (
-            SELECT user_id FROM transactions
-            UNION SELECT user_id FROM card_balances
-            UNION SELECT user_id FROM prayer_settings
+            SELECT user_id FROM prayer_settings
             UNION SELECT user_id FROM reminders
         )
         """
     )
-    tx_count = await count_db_rows("SELECT COUNT(*) FROM transactions")
-    card_count = await count_db_rows("SELECT COUNT(*) FROM card_balances")
     prayer_enabled = await count_db_rows("SELECT COUNT(*) FROM prayer_settings WHERE enabled = 1")
     backup_count = len(list(BACKUP_DIR.glob("assistant-*.db"))) if BACKUP_DIR.exists() else 0
     db_size = DB_PATH.stat().st_size if DB_PATH.exists() else 0
     return (
         f"Foydalanuvchilar: {hcode(str(user_count))}\n"
-        f"Operatsiyalar: {hcode(str(tx_count))}\n"
-        f"Kartalar: {hcode(str(card_count))}\n"
+        f"Moliya: {hcode('arxivlangan')}\n"
         f"Namoz eslatmasi yoqilgan: {hcode(str(prayer_enabled))}\n"
         f"Backup soni: {hcode(str(backup_count))}\n"
         f"DB hajmi: {hcode(str(round(db_size / 1024, 1)) + ' KB')}"
@@ -807,7 +1026,7 @@ async def service_status(name: str) -> str:
 
 async def collect_health() -> dict[str, str]:
     status: dict[str, str] = {}
-    for service in ["assistant-bot", "assistant-forwarder", "cloudflared"]:
+    for service in ["assistant-bot", "cloudflared"]:
         status[service] = await service_status(service)
     try:
         async with connect_db() as db:
@@ -942,27 +1161,10 @@ async def format_category_limits(user_id: int) -> str:
 
 
 async def build_ai_context(user_id: int, chat_id: int) -> str:
-    balances = await get_card_balances(user_id)
-    today_start, today_end, _ = period_range("today")
-    month_start, month_end, _ = period_range("month")
-    today_rows = await get_transactions(user_id, today_start, today_end)
-    month_rows = await get_transactions(user_id, month_start, month_end)
     reminders = await list_pending_reminder_records(user_id, limit=5)
     prayer_setting = await get_prayer_setting(user_id, chat_id)
-
-    def totals(rows: list[dict]) -> tuple[int, int]:
-        income = sum(int(row["amount"]) for row in rows if row["type"] == "income")
-        expense = sum(int(row["amount"]) for row in rows if row["type"] == "expense")
-        return income, expense
-
-    today_income, today_expense = totals(today_rows)
-    month_income, month_expense = totals(month_rows)
     lines = [
-        f"Bugun kirim: {format_money(today_income)}",
-        f"Bugun chiqim: {format_money(today_expense)}",
-        f"Oylik kirim: {format_money(month_income)}",
-        f"Oylik chiqim: {format_money(month_expense)}",
-        f"Karta jami balansi: {format_money(sum(int(row['amount']) for row in balances)) if balances else 'mavjud emas'}",
+        "Moliya bo'limi arxivlangan.",
         f"Namoz shahri: {prayer_setting['city']}",
     ]
     if reminders:
@@ -1010,78 +1212,27 @@ register_admin_handlers(
 
 @router.message(Command("exportcsv"))
 async def finance_export_csv(message: Message) -> None:
-    path = await export_transactions_csv_file(user_id_from(message))
-    await message.answer_document(
-        FSInputFile(path),
-        caption="Moliya CSV export tayyor.",
-        reply_markup=main_keyboard(),
-    )
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(Command("undo"))
 async def finance_undo_last(message: Message) -> None:
-    row = await delete_last_transaction(user_id_from(message))
-    if not row:
-        await message.answer("O'chirish uchun operatsiya topilmadi.", reply_markup=main_keyboard())
-        return
-    await message.answer(
-        hbold("Oxirgi operatsiya o'chirildi") + "\n\n"
-        f"{format_transaction_line(row)}\n\n"
-        "Eslatma: karta balansi alohida saqlanadi. Bank aniq balans yuborsa, balans avtomatik yangilanadi.",
-        reply_markup=main_keyboard(),
-    )
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(Command("setcat"))
 async def finance_set_category(message: Message, command: CommandObject) -> None:
-    raw = command_arg_text(command)
-    match = re.match(r"(\d+)\s+(.+)", raw)
-    if not match:
-        await message.answer(f"Namuna: {hcode('/setcat 15 Ovqat')}", reply_markup=main_keyboard())
-        return
-    tx_id = int(match.group(1))
-    category = match.group(2).strip()[:60] or "Boshqa"
-    row = await get_transaction_by_id(user_id_from(message), tx_id)
-    if not row:
-        await message.answer("Bu ID bo'yicha operatsiya topilmadi.", reply_markup=main_keyboard())
-        return
-    ok = await update_transaction(
-        user_id_from(message),
-        tx_id,
-        row["type"],
-        int(row["amount"]),
-        category,
-        row.get("description") or category,
-        row["occurred_at"],
-    )
-    await message.answer(
-        f"Kategoriya yangilandi: {hcode(category)}" if ok else "Kategoriya yangilanmadi.",
-        reply_markup=main_keyboard(),
-    )
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(Command("limit"))
 async def finance_category_limit(message: Message, command: CommandObject) -> None:
-    raw = command_arg_text(command)
-    match = re.match(r"(.+?)\s+([0-9][0-9\s'.,]*)$", raw)
-    if not match:
-        await message.answer(f"Namuna: {hcode('/limit Ovqat 1000000')}", reply_markup=main_keyboard())
-        return
-    category = match.group(1).strip()[:60] or "Boshqa"
-    amount = clean_amount(match.group(2))
-    await set_category_limit(user_id_from(message), category, amount)
-    if amount <= 0:
-        await message.answer("Limit 0 bo'lsa, signal berilmaydi.", reply_markup=main_keyboard())
-        return
-    await message.answer(
-        f"Limit saqlandi: {escape_html(category)} - {hcode(format_money(amount))}",
-        reply_markup=main_keyboard(),
-    )
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(Command("limits"))
 async def finance_limits(message: Message) -> None:
-    await message.answer(await format_category_limits(user_id_from(message)), reply_markup=main_keyboard())
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(Command("ai_status"))
@@ -1139,7 +1290,7 @@ async def start(message: Message, state: FSMContext, bot: Bot) -> None:
     await configure_miniapp_menu_button(bot, message.chat.id)
     await message.answer(
         "Assalomu alaykum. Men shaxsiy yordamchi botman.\n\n"
-        "Eslatmalarni saqlayman, UZCARD/HUMO xabarlaridan kirim-xarajat hisobotini chiqaraman.\n"
+        "Eslatmalarni saqlayman, namoz vaqtlarini ko'rsataman va guruh navbatchiligini eslataman.\n"
         "Namoz vaqtlarini ko'rsatib, yoqsangiz eslatib turaman.\n"
         "Har bir foydalanuvchining ma'lumoti alohida saqlanadi.",
         reply_markup=main_keyboard(),
@@ -1174,25 +1325,69 @@ async def show_my_id(message: Message) -> None:
     await message.answer(f"Sizning Telegram ID: {hcode(str(user_id_from(message)))}", reply_markup=main_keyboard())
 
 
+@router.message(Command("chore_setup"))
+async def chore_setup(message: Message) -> None:
+    if message.chat.type not in {"group", "supergroup"}:
+        await message.answer("Bu buyruq guruh ichida ishlatiladi.")
+        return
+    if not is_admin_user(user_id_from(message)):
+        await message.answer("Navbatchilikni faqat admin yoqa oladi.")
+        return
+    await enable_group_chores(message.chat.id, message.chat.title or "")
+    members = await chore_member_names()
+    await message.answer(
+        "Guruh navbatchiligi yoqildi.\n\n"
+        "Har kuni 08:00 va 20:00 da musor navbati eslatiladi.\n"
+        "Har yakshanba 10:00 da kvartira yig'ishtirish juftliklari yuboriladi.\n\n"
+        f"Bugungi musor navbatchisi: {escape_html(chore_member_for(members, now_local().date()))}"
+    )
+
+
+@router.message(Command("chore_off"))
+async def chore_off(message: Message) -> None:
+    if message.chat.type not in {"group", "supergroup"}:
+        await message.answer("Bu buyruq guruh ichida ishlatiladi.")
+        return
+    if not is_admin_user(user_id_from(message)):
+        await message.answer("Navbatchilikni faqat admin o'chira oladi.")
+        return
+    await disable_group_chores(message.chat.id)
+    await message.answer("Guruh navbatchiligi o'chirildi.")
+
+
+@router.message(Command("chore_status"))
+async def chore_status(message: Message) -> None:
+    today = now_local().date()
+    members = await chore_member_names()
+    await message.answer(
+        "Navbatchilik jadvali:\n\n"
+        f"Bugungi musor: {escape_html(chore_member_for(members, today))}\n"
+        f"Ertangi musor: {escape_html(chore_member_for(members, today + timedelta(days=1)))}\n"
+        "Musor eslatmalari: 08:00 va 20:00\n"
+        "Yakshanba tozaligi: 10:00\n\n"
+        "/chore_setup - shu guruhda yoqish\n"
+        "/chore_off - shu guruhda o'chirish\n"
+        "/chore_now - hozir eslatmani yuborish"
+    )
+
+
+@router.message(Command("chore_now"))
+async def chore_now(message: Message) -> None:
+    if message.chat.type not in {"group", "supergroup"}:
+        await message.answer("Bu buyruq guruh ichida ishlatiladi.")
+        return
+    if not is_admin_user(user_id_from(message)):
+        await message.answer("Bu buyruq faqat admin uchun.")
+        return
+    today = now_local().date()
+    await message.answer(format_trash_message_for(chore_member_for(await chore_member_names(), today), "morning"))
+    if today.weekday() == 6:
+        await message.answer(format_cleaning_message_for_pair(cleaning_pair_for(await chore_pair_names(), today)))
+
+
 @router.message(Command("connect"))
 async def connect_guide(message: Message) -> None:
-    assistant_username = os.getenv("ASSISTANT_BOT_USERNAME", "").strip() or "assistant bot username"
-    source_bots = os.getenv("SOURCE_BOT_USERNAMES", "@CardXabarBot,@HUMOcardbot").strip()
-    settings_title = "Kerak bo'ladigan sozlamalar"
-    await message.answer(
-        f"{hbold('Avtomatik moliya ulash')}\n\n"
-        "Telegram login kodi va 2FA parolni botga yuborish xavfsiz emas. "
-        "Shuning uchun avtomatik ulash har bir userning o'z kompyuterida ishlaydigan forwarder orqali qilinadi.\n\n"
-        f"{hbold(settings_title)}\n"
-        f"ASSISTANT_BOT_USERNAME={hcode(assistant_username)}\n"
-        f"SOURCE_BOT_USERNAMES={hcode(source_bots)}\n\n"
-        f"{hbold('Qanday ishlaydi')}\n"
-        "1. User forwarder papkasini o'z kompyuterida ishga tushiradi.\n"
-        "2. Telefon raqami va Telegram kodi faqat o'sha kompyuterda kiritiladi.\n"
-        "3. UZCARD/HUMO xabarlari assistant botga o'sha user nomidan yuboriladi.\n"
-        "4. Bot ma'lumotlarni o'sha user Telegram ID siga alohida saqlaydi.",
-        reply_markup=main_keyboard(),
-    )
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(F.text == MAIN_HELP)
@@ -1204,15 +1399,13 @@ async def help_message(message: Message) -> None:
         "Asosiy menyuda ham eslatma yozishingiz mumkin.\n"
         "Masalan: 1 daqiqadan keyin suv ichishni eslat.\n"
         "Misollar: ertaga soat 5 da, yarim soatdan keyin, juma soat 10, 03.05 09:00.\n\n"
-        f"{hbold('Moliya')}\n"
-        "UZCARD/HUMO xabarini asosiy menyuda turib ham forward qiling yoki copy-paste qiling.\n"
-        "Balans ro'yxati yuborsangiz, kartalar balansini yangilaydi.\n"
-        "Qo'lda yozish ham mumkin: plus 500000 oylik, minus 45000 ovqat.\n\n"
         f"{hbold('Namoz')}\n"
         "Shahar tanlang, bugungi namoz vaqtlarini ko'ring va eslatmani yoqing.\n\n"
+        f"{hbold('Guruh navbatchiligi')}\n"
+        "/chore_setup - guruhda navbatchilikni yoqish.\n"
+        "/chore_status - bugungi navbatchini ko'rish.\n\n"
         f"{hbold('ID')}\n"
-        f"O'z Telegram ID ingizni ko'rish: /id\n"
-        f"Avtomatik bank xabarlarini ulash yo'riqnomasi: /connect\n\n"
+        f"O'z Telegram ID ingizni ko'rish: /id\n\n"
         "Bot boshqa foydalanuvchilarning ma'lumotlarini sizga ko'rsatmaydi.",
         reply_markup=miniapp_inline_keyboard(),
     )
@@ -1395,51 +1588,31 @@ async def reminder_delete_finish(message: Message, state: FSMContext) -> None:
 @router.message(Command("finance"))
 async def finance_menu(message: Message, state: FSMContext) -> None:
     await state.clear()
-    await message.answer(
-        "Moliya bo'limi.\n\n"
-        "Bu yerda haftalik/oylik hisobot va karta balanslarini ko'rasiz.\n"
-        "UZCARD/HUMO xabarini qo'shish uchun alohida bo'limga kirish shart emas: "
-        "asosiy menyuda turib forward yoki copy-paste qilsangiz, bot o'zi moliyaga saqlaydi.",
-        reply_markup=finance_keyboard(),
-    )
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(F.text == FINANCE_BANK)
 async def finance_bank_start(message: Message, state: FSMContext) -> None:
-    await state.set_state(FinanceWizard.waiting_bank_message)
-    await message.answer(
-        "UZCARD/HUMO xabarini shu yerga forward qiling yoki matnini tashlang.",
-        reply_markup=back_keyboard(),
-    )
+    await state.clear()
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(F.text == FINANCE_INCOME)
 async def finance_income_start(message: Message, state: FSMContext) -> None:
-    await state.set_state(FinanceWizard.waiting_income)
-    await message.answer("Kirimni yozing. Masalan: 500000 oylik", reply_markup=back_keyboard())
+    await state.clear()
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(F.text == FINANCE_EXPENSE)
 async def finance_expense_start(message: Message, state: FSMContext) -> None:
-    await state.set_state(FinanceWizard.waiting_expense)
-    await message.answer("Xarajatni yozing. Masalan: 45000 ovqat", reply_markup=back_keyboard())
+    await state.clear()
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(FinanceWizard.waiting_bank_message)
 async def finance_bank_finish(message: Message, state: FSMContext) -> None:
-    text = message.text or message.caption or ""
-    tx, tx_id, balances, balance_count, used_estimated_balance = await save_finance_text(user_id_from(message), text)
-    if not tx and not balances:
-        await message.answer(
-            "Bu xabardan summa va kirim/xarajatni aniqlay olmadim. "
-            "UZCARD/HUMO xabarini to'liq yuboring yoki qo'lda plus/minus qilib kiriting."
-        )
-        return
     await state.clear()
-    await message.answer(
-        format_finance_saved(tx, tx_id, balances, balance_count, used_estimated_balance),
-        reply_markup=finance_keyboard(),
-    )
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(FinanceWizard.waiting_income)
@@ -1453,43 +1626,33 @@ async def finance_expense_finish(message: Message, state: FSMContext) -> None:
 
 
 async def save_manual_transaction(message: Message, state: FSMContext, tx_type: str) -> None:
-    text = message.text or ""
-    tx = parse_bank_message(text, fallback_type=tx_type)
-    if not tx:
-        await message.answer("Summa topilmadi. Masalan: 45000 ovqat")
-        return
-    tx.type = tx_type
-    tx.source = "MANUAL"
-    tx.category = detect_category(text)
-    tx.description = text.strip()[:120] or ("Kirim" if tx_type == "income" else "Xarajat")
-    tx_id = await save_transaction(user_id_from(message), tx)
     await state.clear()
-    await message.answer(format_transaction_saved(tx_id, tx), reply_markup=finance_keyboard())
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(F.text == FINANCE_TODAY)
 async def finance_today(message: Message) -> None:
-    await message.answer(await format_report(user_id_from(message), "today"), reply_markup=finance_keyboard())
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(F.text == FINANCE_WEEK)
 async def finance_week(message: Message) -> None:
-    await message.answer(await format_report(user_id_from(message), "week"), reply_markup=finance_keyboard())
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(F.text == FINANCE_MONTH)
 async def finance_month(message: Message) -> None:
-    await message.answer(await format_report(user_id_from(message), "month"), reply_markup=finance_keyboard())
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(F.text == FINANCE_LAST)
 async def finance_last(message: Message) -> None:
-    await message.answer(await format_last_transactions(user_id_from(message)), reply_markup=finance_keyboard())
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 @router.message(F.text == FINANCE_BALANCES)
 async def finance_balances(message: Message) -> None:
-    await message.answer(await format_card_balances(user_id_from(message)), reply_markup=finance_keyboard())
+    await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
 
 
 async def answer_quick_question(message: Message, text: str) -> bool:
@@ -1502,27 +1665,27 @@ async def answer_quick_question(message: Message, text: str) -> bool:
     if any(word in raw for word in ["balans", "kartalar", "kartam"]) or (
         "pul" in raw and any(word in raw for word in ["qancha", "qoldi", "qoldiq"])
     ):
-        await message.answer(await format_card_balances(user_id), reply_markup=main_keyboard())
+        await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
         return True
 
     if "bugun" in raw and any(word in raw for word in finance_words):
-        await message.answer(await format_report(user_id, "today"), reply_markup=main_keyboard())
+        await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
         return True
 
     if any(word in raw for word in ["hafta", "haftalik"]) and any(word in raw for word in finance_words):
-        await message.answer(await format_report(user_id, "week"), reply_markup=main_keyboard())
+        await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
         return True
 
     if any(word in raw for word in ["oy", "oylik", "may", "aprel"]) and any(word in raw for word in finance_words):
-        await message.answer(await format_report(user_id, "month"), reply_markup=main_keyboard())
+        await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
         return True
 
     if any(word in raw for word in ["oxirgi", "so'nggi", "songgi"]) and any(word in raw for word in ["operatsiya", "yozuv", "tranzaksiya"]):
-        await message.answer(await format_last_transactions(user_id), reply_markup=main_keyboard())
+        await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
         return True
 
     if "limit" in raw and any(word in raw for word in ["ko'r", "kor", "qanaqa", "qancha", "ro'yxat", "royxat"]):
-        await message.answer(await format_category_limits(user_id), reply_markup=main_keyboard())
+        await message.answer(FINANCE_ARCHIVED_MESSAGE, reply_markup=main_keyboard())
         return True
 
     if any(word in raw for word in ["namoz", "bomdod", "peshin", "asr", "shom", "xufton"]):
@@ -1532,7 +1695,7 @@ async def answer_quick_question(message: Message, text: str) -> bool:
 
     if raw in {"salom", "assalomu alaykum", "assalom alaykum", "hello", "hi"}:
         await message.answer(
-            "Assalomu alaykum. Bank xabari, eslatma yoki moliya savolini yozing. Mini App uchun /app.",
+            "Assalomu alaykum. Eslatma, namoz yoki guruh navbatchiligi bo'yicha yozing. Mini App uchun /app.",
             reply_markup=main_keyboard(),
         )
         return True
@@ -1543,15 +1706,6 @@ async def answer_quick_question(message: Message, text: str) -> bool:
 @router.message(F.text)
 async def catch_bank_reminder_or_unknown(message: Message, state: FSMContext) -> None:
     text = message.text or ""
-    if looks_like_bank_message(text):
-        tx, tx_id, balances, balance_count, used_estimated_balance = await save_finance_text(user_id_from(message), text)
-        if tx or balances:
-            await message.answer(
-                format_finance_saved(tx, tx_id, balances, balance_count, used_estimated_balance),
-                reply_markup=main_keyboard(),
-            )
-            return
-
     reminder = parse_inline_reminder(text)
     if reminder:
         due_at, reminder_body = reminder
@@ -1591,8 +1745,8 @@ async def catch_bank_reminder_or_unknown(message: Message, state: FSMContext) ->
         return
 
     await message.answer(
-        "Bank xabari yoki eslatma yozsangiz, o'zim ajratib saqlashga harakat qilaman.\n\n"
-        "Masalan: ertaga 10:00 qo'ng'iroq qilish yoki minus 45000 ovqat.",
+        "Eslatma yozsangiz, o'zim ajratib saqlashga harakat qilaman.\n\n"
+        "Masalan: ertaga 10:00 qo'ng'iroq qilish.",
         reply_markup=main_keyboard(),
     )
 
@@ -1659,6 +1813,38 @@ async def daily_report_loop(bot: Bot) -> None:
         await asyncio.sleep(max(interval, 60))
 
 
+async def group_chore_loop(bot: Bot) -> None:
+    interval = int(os.getenv("GROUP_CHORE_CHECK_SECONDS", "60"))
+    morning_hour = int(os.getenv("GROUP_CHORE_MORNING_HOUR", "8"))
+    evening_hour = int(os.getenv("GROUP_CHORE_EVENING_HOUR", "20"))
+    sunday_hour = int(os.getenv("GROUP_CHORE_SUNDAY_HOUR", "10"))
+    while True:
+        try:
+            now = now_local()
+            today = now.date()
+            chats = await active_group_chore_chats()
+            member = chore_member_for(await chore_member_names(), today)
+            cleaning_pairs = await chore_pair_names()
+            for chat_id in chats:
+                for period, hour in (("morning", morning_hour), ("evening", evening_hour)):
+                    chore_key = f"trash:{period}"
+                    if now.hour != hour:
+                        continue
+                    if await was_group_chore_sent(chat_id, chore_key, today):
+                        continue
+                    await bot.send_message(chat_id, format_trash_message_for(member, period))
+                    await mark_group_chore_sent(chat_id, chore_key, today)
+                if now.weekday() == 6 and now.hour == sunday_hour:
+                    chore_key = "cleaning:sunday"
+                    if await was_group_chore_sent(chat_id, chore_key, today):
+                        continue
+                    await bot.send_message(chat_id, format_cleaning_message_for_pair(cleaning_pair_for(cleaning_pairs, today)))
+                    await mark_group_chore_sent(chat_id, chore_key, today)
+        except Exception as exc:
+            logging.exception("Group chore loop failed: %s", exc)
+        await asyncio.sleep(max(interval, 30))
+
+
 async def main() -> None:
     await init_db()
     token = os.getenv("BOT_TOKEN", "").strip()
@@ -1671,12 +1857,12 @@ async def main() -> None:
     dp.include_router(router)
 
     await bot.delete_webhook(drop_pending_updates=True)
-    miniapp_runner = await start_miniapp_server()
+    miniapp_runner = await start_miniapp_server(bot)
     await configure_miniapp_menu_button(bot)
     await configure_known_user_menu_buttons(bot)
     reminders_task = asyncio.create_task(reminder_loop(bot))
     prayer_task = asyncio.create_task(prayer_loop(bot))
-    daily_report_task = asyncio.create_task(daily_report_loop(bot))
+    group_chore_task = asyncio.create_task(group_chore_loop(bot))
     backup_task = asyncio.create_task(backup_loop(bot))
     health_task = asyncio.create_task(health_monitor_loop(bot))
     try:
@@ -1684,13 +1870,13 @@ async def main() -> None:
     finally:
         reminders_task.cancel()
         prayer_task.cancel()
-        daily_report_task.cancel()
+        group_chore_task.cancel()
         backup_task.cancel()
         health_task.cancel()
         await asyncio.gather(
             reminders_task,
             prayer_task,
-            daily_report_task,
+            group_chore_task,
             backup_task,
             health_task,
             return_exceptions=True,

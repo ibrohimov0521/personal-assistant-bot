@@ -1,10 +1,10 @@
 :root {
-  --bg: #07080c;
-  --bg-elev: #0c0e14;
-  --panel: #131620;
-  --panel-2: #1a1e2a;
-  --panel-3: #232838;
-  --panel-4: #2c3245;
+  --bg: #06111e;
+  --bg-elev: #0a1828;
+  --panel: rgba(13, 27, 45, 0.82);
+  --panel-2: rgba(18, 36, 60, 0.78);
+  --panel-3: rgba(28, 52, 82, 0.72);
+  --panel-4: rgba(43, 75, 112, 0.72);
 
   --text: #f4f5f8;
   --text-soft: #d6d9e2;
@@ -13,25 +13,25 @@
   --line: rgba(255, 255, 255, 0.06);
   --line-strong: rgba(255, 255, 255, 0.1);
 
-  --accent: #00d9a0;
-  --accent-2: #4fe9b7;
-  --accent-glow: rgba(0, 217, 160, 0.32);
-  --info: #6ea8fe;
-  --info-2: #a3c4ff;
+  --accent: #00aeef;
+  --accent-2: #17d4c1;
+  --accent-glow: rgba(0, 174, 239, 0.32);
+  --info: #4cb4ff;
+  --info-2: #b8e9ff;
   --danger: #ff5c7a;
   --danger-2: #ff89a0;
   --warn: #ffb454;
 
-  --grad-card-a: linear-gradient(135deg, #1d2940 0%, #0d1320 60%, #1a2238 100%);
-  --grad-card-b: linear-gradient(135deg, #2a1a3d 0%, #150d22 60%, #2d1a3b 100%);
-  --grad-card-c: linear-gradient(135deg, #0f3a35 0%, #0a1a18 60%, #103634 100%);
-  --grad-card-d: linear-gradient(135deg, #3a1f2c 0%, #1c0e15 60%, #3a1f2c 100%);
-  --grad-card-e: linear-gradient(135deg, #1a2a3a 0%, #0a1320 60%, #21344d 100%);
+  --grad-card-a: linear-gradient(135deg, #11375d 0%, #0b1627 62%, #132844 100%);
+  --grad-card-b: linear-gradient(135deg, #174c65 0%, #0b1928 62%, #123b50 100%);
+  --grad-card-c: linear-gradient(135deg, #0d5b56 0%, #071c23 62%, #0d403e 100%);
+  --grad-card-d: linear-gradient(135deg, #284866 0%, #101827 62%, #1a314c 100%);
+  --grad-card-e: linear-gradient(135deg, #154466 0%, #071827 62%, #162d49 100%);
 
   --shadow-lg: 0 24px 48px rgba(0, 0, 0, 0.5);
   --shadow-md: 0 14px 32px rgba(0, 0, 0, 0.38);
   --shadow-sm: 0 6px 14px rgba(0, 0, 0, 0.28);
-  --ring-focus: 0 0 0 3px rgba(0, 217, 160, 0.22);
+  --ring-focus: 0 0 0 3px rgba(56, 189, 248, 0.22);
 
   --radius-xs: 8px;
   --radius-sm: 12px;
@@ -49,32 +49,32 @@
    The card and panel surfaces sit slightly above the page so depth comes
    from layered blue tones rather than pure-white contrast. */
 body.light {
-  --bg: #131c30;
-  --bg-elev: #1a2440;
-  --panel: #1a2440;
-  --panel-2: #20294b;
-  --panel-3: #2a3458;
-  --panel-4: #353f68;
+  --bg: #f3fbff;
+  --bg-elev: #ffffff;
+  --panel: rgba(255, 255, 255, 0.78);
+  --panel-2: rgba(242, 250, 255, 0.86);
+  --panel-3: rgba(225, 244, 255, 0.88);
+  --panel-4: rgba(204, 236, 255, 0.90);
 
-  --text: #eef2fa;
-  --text-soft: #ccd5e6;
-  --muted: #8e98b3;
-  --muted-2: #6b7592;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.14);
+  --text: #10243a;
+  --text-soft: #294663;
+  --muted: #5f7892;
+  --muted-2: #7d96ad;
+  --line: rgba(20, 91, 135, 0.12);
+  --line-strong: rgba(20, 91, 135, 0.22);
 
-  --accent: #00d9a0;
-  --accent-2: #4fe9b7;
-  --accent-glow: rgba(0, 217, 160, 0.30);
-  --info: #6ea8fe;
-  --info-2: #a3c4ff;
+  --accent: #00aeef;
+  --accent-2: #10c8b5;
+  --accent-glow: rgba(0, 174, 239, 0.22);
+  --info: #0878c9;
+  --info-2: #4cc9f0;
   --danger: #ff5c7a;
   --danger-2: #ff89a0;
   --warn: #ffb454;
 
-  --shadow-lg: 0 24px 48px rgba(0, 0, 0, 0.50);
-  --shadow-md: 0 14px 30px rgba(0, 0, 0, 0.34);
-  --shadow-sm: 0 6px 14px rgba(0, 0, 0, 0.24);
+  --shadow-lg: 0 24px 50px rgba(49, 113, 160, 0.18);
+  --shadow-md: 0 14px 30px rgba(49, 113, 160, 0.14);
+  --shadow-sm: 0 6px 18px rgba(49, 113, 160, 0.10);
 }
 
 * {
@@ -91,10 +91,9 @@ body {
   min-height: 100vh;
   color: var(--text);
   background:
-    radial-gradient(1100px 600px at 12% -10%, rgba(0, 217, 160, 0.10), transparent 55%),
-    radial-gradient(900px 500px at 95% 0%, rgba(110, 168, 254, 0.08), transparent 50%),
-    radial-gradient(700px 700px at 80% 110%, rgba(120, 84, 200, 0.08), transparent 60%),
-    linear-gradient(180deg, #07080c 0%, #090b11 35%, #07080c 100%);
+    radial-gradient(900px 540px at 10% -10%, rgba(0, 174, 239, 0.16), transparent 58%),
+    radial-gradient(820px 500px at 96% 4%, rgba(23, 212, 193, 0.10), transparent 54%),
+    linear-gradient(180deg, #06111e 0%, #071827 44%, #050b13 100%);
   font-family:
     "Inter",
     "SF Pro Display",
@@ -108,15 +107,14 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
 }
 
 body.light {
   background:
-    radial-gradient(1100px 700px at 50% -10%, rgba(140, 100, 220, 0.20), transparent 55%),
-    radial-gradient(900px 600px at 0% 5%, rgba(0, 217, 160, 0.10), transparent 60%),
-    radial-gradient(900px 600px at 100% 5%, rgba(110, 168, 254, 0.10), transparent 60%),
-    linear-gradient(180deg, #131c30 0%, #1a2440 50%, #131c30 100%);
+    radial-gradient(980px 620px at 50% -12%, rgba(0, 174, 239, 0.24), transparent 58%),
+    radial-gradient(740px 520px at 0% 6%, rgba(16, 200, 181, 0.16), transparent 56%),
+    linear-gradient(180deg, #f5fcff 0%, #e8f8ff 48%, #ffffff 100%);
 }
 
 button,
@@ -168,7 +166,7 @@ p {
 
 body.light .bg-photo {
   background-image:
-    linear-gradient(180deg, rgba(15, 22, 42, 0.34) 0%, rgba(19, 28, 48, 0.78) 70%, rgba(19, 28, 48, 0.96) 100%),
-    radial-gradient(80% 70% at 50% 110%, rgba(19, 28, 48, 0.85), transparent 60%),
+    linear-gradient(180deg, rgba(232, 248, 255, 0.72) 0%, rgba(224, 244, 255, 0.88) 70%, rgba(247, 252, 255, 0.98) 100%),
+    radial-gradient(80% 70% at 50% 110%, rgba(217, 240, 255, 0.78), transparent 60%),
     url("./assets/bg-day.jpg");
 }

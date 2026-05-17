@@ -3,7 +3,6 @@ $Project = Split-Path -Parent $ToolsDir
 $Python = Join-Path $Project ".venv\Scripts\python.exe"
 $Cloudflared = Join-Path $env:USERPROFILE "Downloads\cloudflared.exe"
 $BotLog = Join-Path $Project "assistant_runtime.log"
-$ForwarderLog = Join-Path $Project "forwarder_runtime.log"
 $CloudflaredLog = Join-Path $Project "cloudflared_runtime.log"
 $MiniappUrlFile = Join-Path $ToolsDir "miniapp_url.txt"
 
@@ -128,10 +127,10 @@ if (-not (Test-Path -LiteralPath $Python)) {
     }
 }
 
-Stop-MatchingProcess @("assistant_bot.py", "forwarder.py")
+Stop-MatchingProcess @("assistant_bot.py")
 Start-Sleep -Seconds 2
 
-Remove-Item -LiteralPath $BotLog, $ForwarderLog -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $BotLog -Force -ErrorAction SilentlyContinue
 
 $currentUrl = Get-CurrentMiniAppUrl
 $cloudflaredRunning = @(Get-MatchingProcesses @("cloudflared.exe")).Count -gt 0
@@ -153,14 +152,6 @@ if ($cloudflaredRunning -and $currentUrl -and $currentUrlHealthy) {
 }
 
 Start-HiddenCommand -Command "`"$Python`" assistant_bot.py" -LogPath $BotLog
-
-$SessionFile = Join-Path $Project "user_session.session"
-if (Test-Path -LiteralPath $SessionFile) {
-    Start-HiddenCommand -Command "`"$Python`" forwarder.py" -LogPath $ForwarderLog
-} else {
-    "Forwarder login qilinmagan. Avval ko'rinadigan terminalda .\.venv\Scripts\python.exe forwarder.py ni ishga tushirib Telegram telefon/kod bilan login qiling." |
-        Set-Content -LiteralPath $ForwarderLog -Encoding UTF8
-}
 
 Start-Sleep -Seconds 4
 & (Join-Path $ToolsDir "status_all.ps1")

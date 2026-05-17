@@ -48,12 +48,10 @@ def register_admin_handlers(router: Router, deps: AdminHandlerDeps) -> None:
             f"{hcode('/audit')} - admin harakatlari tarixi\n"
             f"{hcode('/allow 123456789')} - userga ruxsat berish\n"
             f"{hcode('/deny 123456789')} - userni bloklash\n\n"
-            f"{hbold('Moliya buyruqlari')}\n"
-            f"{hcode('/exportcsv')} - o'z moliya CSV faylingiz\n"
-            f"{hcode('/undo')} - oxirgi operatsiyani o'chirish\n"
-            f"{hcode('/setcat 15 Ovqat')} - operatsiya kategoriyasini o'zgartirish\n"
-            f"{hcode('/limit Ovqat 1000000')} - kategoriya limiti\n"
-            f"{hcode('/limits')} - limitlar ro'yxati",
+            f"{hbold('Guruh navbatchiligi')}\n"
+            f"{hcode('/chore_setup')} - guruhda yoqish\n"
+            f"{hcode('/chore_status')} - jadval holati\n"
+            f"{hcode('/chore_now')} - hozir eslatish",
             reply_markup=deps.main_keyboard(),
         )
 

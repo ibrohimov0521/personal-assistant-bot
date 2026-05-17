@@ -61,7 +61,7 @@ def looks_like_bank_text(text: str) -> bool:
     return any(keyword in lowered for keyword in BANK_KEYWORDS) and any(char.isdigit() for char in text)
 
 
-async def main() -> None:
+async def run_forwarder() -> None:
     api_id = int(get_required_env("TG_API_ID"))
     api_hash = get_required_env("TG_API_HASH")
     assistant_bot_username = get_required_env("ASSISTANT_BOT_USERNAME")
@@ -115,6 +115,20 @@ async def main() -> None:
     logging.info("Forwarder ishlayapti. Kuzatilayotgan botlar: %s", ", ".join(source_usernames) or "bank-like bot messages")
     logging.info("Xabarlar yuboriladigan bot: %s", assistant_bot_username)
     await client.run_until_disconnected()
+
+
+async def main() -> None:
+    while True:
+        try:
+            await run_forwarder()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logging.exception("Forwarder to'xtab qoldi, 20 soniyadan keyin qayta ulanadi: %s", exc)
+            await asyncio.sleep(20)
+        else:
+            logging.warning("Forwarder uzildi, 20 soniyadan keyin qayta ulanadi.")
+            await asyncio.sleep(20)
 
 
 if __name__ == "__main__":

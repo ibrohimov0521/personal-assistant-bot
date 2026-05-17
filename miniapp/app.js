@@ -7,10 +7,12 @@ let activeView = "home";
 let previousView = "home";
 let transactionFilter = "all";
 let periodFilter = "today";
+let showAllActiveReminders = false;
 let showAllCompletedReminders = false;
 let showAllTransactions = false;
 let cardWheelScrollHandler = null;
 let cardWheelRaf = 0;
+const FINANCE_ARCHIVED = true;
 
 const TRANSACTIONS_COLLAPSED_LIMIT = 6;
 
@@ -43,6 +45,29 @@ function formatDateTime(value) {
   }).format(date);
 }
 
+function toDatetimeLocal(value) {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return "";
+  const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return shifted.toISOString().slice(0, 16);
+}
+
+function fromDatetimeLocal(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? new Date().toISOString() : date.toISOString();
+}
+
+function formatTimeLeft(value) {
+  if (!value) return "";
+  const target = new Date(value);
+  const diff = target.getTime() - Date.now();
+  if (Number.isNaN(target.getTime()) || diff <= 0) return "vaqti kirdi";
+  const totalMinutes = Math.ceil(diff / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours} soat ${minutes} daqiqa qoldi` : `${minutes} daqiqa qoldi`;
+}
+
 function monthName(value = new Date()) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -57,6 +82,16 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function normalizeUsernameInput(value) {
+  const username = String(value || "")
+    .trim()
+    .replace(/^https:\/\/t\.me\//i, "")
+    .replace(/^t\.me\//i, "")
+    .replace(/^@?/, "");
+  if (!/^[A-Za-z0-9_]{5,32}$/.test(username)) return "";
+  return `@${username}`;
 }
 
 function showToast(text) {
@@ -131,6 +166,9 @@ async function loadDashboard() {
 
 function setView(view) {
   if (!view) return;
+  if (FINANCE_ARCHIVED && ["finance", "cards"].includes(view)) {
+    view = "home";
+  }
   if (view === "admin" && !state.is_admin) {
     view = "home";
   }
@@ -148,27 +186,24 @@ function setView(view) {
   } else {
     teardownCardWheel();
   }
-  // Reset hero compact when leaving home so the morph transition does not
-  // play in the short / hidden variants where the same elements are styled
-  // by the per-view rules instead.
   if (view !== "home") {
-    heroIsCompact = false;
-    document.querySelector(".hero")?.classList.remove("compact");
     window.scrollTo({ top: 0, behavior: "auto" });
   }
+  updateMiniHeaderVisibility();
   if (window.lucide) lucide.createIcons();
 }
 
 function setTransactionFilter(filter = "all") {
   transactionFilter = ["income", "expense"].includes(filter) ? filter : "all";
   showAllTransactions = false;
-  document.querySelectorAll("[data-transaction-filter]").forEach((button) => {
+  document.querySelectorAll("[data-transaction-filter]:not(.quick-card)").forEach((button) => {
     button.classList.toggle("active-filter", button.dataset.transactionFilter === transactionFilter);
   });
   document.querySelectorAll(".segment[data-transaction-filter]").forEach((button) => {
     button.classList.toggle("active", button.dataset.transactionFilter === transactionFilter);
   });
   renderTransactions();
+  if (window.lucide) lucide.createIcons();
 }
 
 function setPeriodFilter(filter = "today") {
@@ -177,6 +212,7 @@ function setPeriodFilter(filter = "today") {
     button.classList.toggle("active", button.dataset.periodFilter === periodFilter);
   });
   renderFinance();
+  if (window.lucide) lucide.createIcons();
 }
 
 function currentPeriodData() {
@@ -233,12 +269,13 @@ function renderHero() {
   $("homeIncome").textContent = state.month?.income_text || "0 UZS";
   $("homeExpense").textContent = state.month?.expense_text || "0 UZS";
   renderHeroAvatar();
+  renderMiniHeader();
 }
 
 function renderHeroAvatar() {
   const button = $("heroAvatarButton");
   if (!button) return;
-  const user = tg?.initDataUnsafe?.user || {};
+  const user = tg?.initDataUnsafe?.user || state.current_user || {};
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ") || "Foydalanuvchi";
   const letter = (fullName.trim().charAt(0) || "F").toUpperCase();
 
@@ -270,10 +307,42 @@ function renderHeroAvatar() {
   }
 }
 
+function renderMiniHeader() {
+  const user = tg?.initDataUnsafe?.user || state.current_user || {};
+  const fullName = [user.first_name, user.last_name, user.name].filter(Boolean).join(" ") || "Assistant";
+  $("miniTitle").textContent = activeView === "extras" ? "Qo'shimcha" : fullName;
+  $("miniSubtitle").textContent = activeView === "extras"
+    ? (state.prayer?.city || "Namoz nazorati")
+    : "Assistant faol";
+  const miniAvatar = $("miniAvatarButton");
+  if (!miniAvatar) return;
+  const letter = (fullName.trim().charAt(0) || "A").toUpperCase();
+  miniAvatar.textContent = "";
+  if (user.photo_url) {
+    const img = document.createElement("img");
+    img.alt = "";
+    img.referrerPolicy = "no-referrer";
+    img.src = user.photo_url;
+    img.addEventListener("error", () => {
+      miniAvatar.textContent = "";
+      const span = document.createElement("span");
+      span.textContent = letter;
+      miniAvatar.append(span);
+    });
+    miniAvatar.append(img);
+  } else {
+    const span = document.createElement("span");
+    span.textContent = letter;
+    miniAvatar.append(span);
+  }
+}
+
 function renderOverview() {
   const next = state.prayer?.next;
-  $("nextPrayerName").textContent = next ? `${next.name} ${next.time}` : "Bugungi vaqtlar tugadi";
-  $("nextPrayerMeta").textContent = `${state.prayer?.city || "Toshkent"} · eslatma ${state.prayer?.enabled ? "yoqilgan" : "o'chirilgan"}`;
+  $("nextPrayerName").textContent = next ? `${next.name} ${next.time}` : "Bomdod vaqti topilmadi";
+  const timeLeft = next?.iso ? `${formatTimeLeft(next.iso)} · ` : "";
+  const dayLabel = next?.day_label ? `${next.day_label} · ` : "";
+  $("nextPrayerMeta").textContent = `${dayLabel}${timeLeft}${state.prayer?.city || "Toshkent"} · eslatma ${state.prayer?.enabled ? "yoqilgan" : "o'chirilgan"}`;
   const reminderListLen = (state.active_reminders || state.reminders || []).length;
   $("reminderCount").textContent = `${reminderListLen} ta`;
   renderHomeReminders();
@@ -308,7 +377,8 @@ function transactionItemHtml(item, index, manageable = false) {
         </button>
       </div>`
     : "";
-  return `<article class="list-item ${manageable ? "managed" : ""}" style="animation-delay:${index * 28}ms">
+  const openAttr = manageable ? "" : ' data-open-finance-transactions="1"';
+  return `<article class="list-item transaction-row ${manageable ? "managed" : "clickable"}"${openAttr} style="animation-delay:${index * 28}ms">
     <div class="item-icon ${type}"><i data-lucide="${icon}"></i></div>
     <div>
       <div class="item-title">${escapeHtml(item.description || item.category || "Operatsiya")}</div>
@@ -343,6 +413,7 @@ function renderFinance() {
   $("reportIncome").textContent = data.income_text || "0 so'm";
   $("reportExpense").textContent = data.expense_text || "0 so'm";
   $("reportNet").textContent = data.net_text || "0 so'm";
+  renderFinanceShortcut();
 
   const dailyLimit = safeNumber(state.settings?.daily_expense_limit);
   $("dailyLimitInput").value = dailyLimit > 0 ? String(dailyLimit) : "";
@@ -359,8 +430,20 @@ function renderFinance() {
   renderCategories();
   renderCategoryLimits();
   renderSavings();
-  renderBalances();
   renderSignals();
+}
+
+function renderFinanceShortcut() {
+  const balance = $("financeShortBalance");
+  if (!balance) return;
+  const balances = state.balances || [];
+  balance.textContent = state.balance_total_text || "0 so'm";
+  const updated = balances
+    .map((item) => item.updated_at)
+    .filter(Boolean)
+    .sort()
+    .at(-1);
+  $("financeShortMeta").textContent = `${balances.length} ta karta${updated ? ` · ${formatDateTime(updated)}` : ""}`;
 }
 
 function renderTransactions() {
@@ -466,8 +549,8 @@ function renderSavings() {
 
 function renderBalances() {
   const balances = state.balances || [];
-  $("cardUpdatedLabel").textContent = `${balances.length} ta karta`;
   const list = $("balanceList");
+  if (!list) return;
   list.innerHTML = "";
   if (!balances.length) {
     list.innerHTML = `<div class="empty">Balanslar hali yo'q. UZCARD/HUMO xabarini botga yuboring.</div>`;
@@ -548,6 +631,9 @@ function bankCardHtml(item, index) {
         <span class="bank-card-brand">${escapeHtml(brand)}</span>
         <span class="bank-card-label">${escapeHtml(label)}</span>
       </div>
+      <button class="icon-button small card-menu-button" data-card-menu="${escapeHtml(last4)}" type="button" aria-label="Karta menyusi" aria-expanded="false">
+        <i data-lucide="ellipsis-vertical"></i>
+      </button>
       <div class="bank-card-balance">
         <span>Balans</span>
         <strong>${escapeHtml(amount)}</strong>
@@ -612,28 +698,15 @@ function applyCardWheelTransforms() {
   if (!wheel) return;
   const cards = wheel.querySelectorAll(".bank-card");
   if (!cards.length) return;
-  const wheelRect = wheel.getBoundingClientRect();
-  const center = wheelRect.top + wheelRect.height / 2;
-
   cards.forEach((card) => {
-    const rect = card.getBoundingClientRect();
-    const cardCenter = rect.top + rect.height / 2;
-    const distRel = clamp((cardCenter - center) / rect.height, -3, 3);
-    const abs = Math.abs(distRel);
+    card.style.transform = "";
+    card.style.opacity = "";
+    card.style.zIndex = "";
+    card.style.filter = "";
+
 
     // Gentler curve so the cards directly above and below the centre stay
     // clearly visible — the user wants the deck behind to peek through.
-    const rotateX = clamp(distRel * -18, -42, 42);
-    const translateZ = -abs * 60;
-    const translateY = distRel * 4;
-    const scale = 1 - Math.min(0.18, abs * 0.07);
-    const opacity = clamp(1 - abs * 0.24, 0.25, 1);
-    const blur = abs > 1.6 ? Math.min(3, (abs - 1.6) * 3) : 0;
-
-    card.style.transform = `translate3d(0, ${translateY}px, ${translateZ}px) rotateX(${rotateX}deg) scale(${scale})`;
-    card.style.opacity = opacity.toFixed(3);
-    card.style.zIndex = String(Math.round(100 - abs * 50));
-    card.style.filter = blur > 0 ? `blur(${blur.toFixed(2)}px)` : "";
   });
 }
 
@@ -645,23 +718,7 @@ function initCardWheel() {
   if (!wheel) return;
   teardownCardWheel();
 
-  // Snap initial scroll so the first card is centered.
-  const firstCard = wheel.querySelector(".bank-card");
-  if (firstCard) {
-    const target = firstCard.offsetTop - (wheel.clientHeight - firstCard.offsetHeight) / 2;
-    wheel.scrollTop = Math.max(0, target);
-  }
-
   applyCardWheelTransforms();
-
-  cardWheelScrollHandler = () => {
-    if (cardWheelRaf) return;
-    cardWheelRaf = requestAnimationFrame(() => {
-      cardWheelRaf = 0;
-      applyCardWheelTransforms();
-    });
-  };
-  wheel.addEventListener("scroll", cardWheelScrollHandler, { passive: true });
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -673,9 +730,14 @@ function reminderItemHtml(item, index, removable) {
   const dateText = item.status === "sent" && item.sent_at ? formatDateTime(item.sent_at) : formatDateTime(item.due_at);
   const repeatText = item.repeat_label ? ` · ${escapeHtml(item.repeat_label)}` : "";
   const action = removable
-    ? `<button class="icon-button danger small" data-delete-reminder="${item.id}" type="button" aria-label="O'chirish">
+    ? `<div class="item-actions">
+      <button class="icon-button small" data-edit-reminder="${item.id}" type="button" aria-label="Tahrirlash">
+        <i data-lucide="pencil"></i>
+      </button>
+      <button class="icon-button danger small" data-delete-reminder="${item.id}" type="button" aria-label="O'chirish">
         <i data-lucide="trash-2"></i>
       </button>`
+    + `</div>`
     : `<i data-lucide="chevron-right"></i>`;
   return `<article class="list-item" style="animation-delay:${index * 28}ms">
     <div class="item-icon"><i data-lucide="${item.status === "pending" ? "bell-ring" : "check-check"}"></i></div>
@@ -690,7 +752,7 @@ function reminderItemHtml(item, index, removable) {
 function renderExtras() {
   const active = state.active_reminders || [];
   const completed = state.completed_reminders || [];
-  $("activeReminderCount").textContent = `${active.length} ta`;
+  $("activeReminderCount").textContent = active.length > 4 && !showAllActiveReminders ? `Yana ${active.length - 4} ta` : `${active.length} ta`;
   $("completedReminderCount").textContent = completed.length > 3 && !showAllCompletedReminders ? "Barchasi" : `${completed.length} ta`;
 
   const activeList = $("activeReminderList");
@@ -698,7 +760,8 @@ function renderExtras() {
   if (!active.length) {
     activeList.innerHTML = `<div class="empty">Aktiv eslatma yo'q. Telegramga "1 soatdan keyin ..." deb yozing.</div>`;
   } else {
-    active.forEach((item, index) => activeList.insertAdjacentHTML("beforeend", reminderItemHtml(item, index, true)));
+    const visibleActive = showAllActiveReminders ? active : active.slice(0, 4);
+    visibleActive.forEach((item, index) => activeList.insertAdjacentHTML("beforeend", reminderItemHtml(item, index, true)));
   }
 
   const completedList = $("completedReminderList");
@@ -714,7 +777,7 @@ function renderExtras() {
 }
 
 function renderProfile() {
-  const user = tg?.initDataUnsafe?.user || {};
+  const user = tg?.initDataUnsafe?.user || state.current_user || {};
   const fullName = [user.first_name, user.last_name].filter(Boolean).join(" ") || "Foydalanuvchi";
   $("profileName").textContent = fullName;
 
@@ -740,7 +803,7 @@ function renderProfile() {
   $("profileStatus").textContent = demoMode ? "Telegram orqali oching" : "Assistant faol";
   $("profileUsername").textContent = user.username ? `@${user.username}` : "Ko'rsatilmagan";
   $("profileId").textContent = user.id ? String(user.id) : "Telegramda oching";
-  $("profilePhone").textContent = "Botga berilmagan";
+  $("profilePhone").textContent = user.phone_number || "Botga berilmagan";
   $("profileLanguage").textContent = user.language_code || "uz";
   $("botStatus").textContent = demoMode ? "Telegram orqali oching" : "Online";
   $("connectionStatus").textContent = demoMode ? "Demo ma'lumot" : "Himoyalangan";
@@ -767,6 +830,9 @@ function userStatusBadges(item) {
 function adminUserHtml(item, index) {
   const username = item.username_text || (item.username ? `@${item.username}` : "Ko'rsatilmagan");
   const updated = item.updated_at_text ? formatDateTime(item.updated_at_text) : "Hali ko'rinmagan";
+  const avatar = item.photo_url
+    ? `<img src="${escapeHtml(item.photo_url)}" alt="" referrerpolicy="no-referrer" />`
+    : escapeHtml(item.name || "U").charAt(0).toUpperCase();
   const action = item.admin
     ? `<button class="ghost-action" disabled type="button"><i data-lucide="shield-check"></i><span>Admin</span></button>`
     : item.blocked
@@ -774,7 +840,7 @@ function adminUserHtml(item, index) {
       : `<button class="ghost-action danger" data-admin-block="${item.user_id}" type="button"><i data-lucide="ban"></i><span>Bloklash</span></button>`;
   return `<article class="admin-user-card" style="animation-delay:${index * 28}ms">
     <div class="admin-user-head">
-      <div class="avatar mini">${escapeHtml(item.name || "U").charAt(0).toUpperCase()}</div>
+      <div class="avatar mini">${avatar}</div>
       <div>
         <div class="item-title">${escapeHtml(item.name || `User ${item.user_id}`)}</div>
         <div class="item-meta">${escapeHtml(username)} · ID ${escapeHtml(item.user_id)}</div>
@@ -782,13 +848,80 @@ function adminUserHtml(item, index) {
       <div class="status-row">${userStatusBadges(item)}</div>
     </div>
     <div class="admin-user-grid">
-      <div><span>Balans</span><strong>${escapeHtml(item.balance_text || "0 so'm")}</strong></div>
-      <div><span>Chiqim</span><strong>${escapeHtml(item.expense_text || "0 so'm")}</strong></div>
+      <div><span>Telefon</span><strong>${escapeHtml(item.phone_number || "Berilmagan")}</strong></div>
+      <div><span>Nickname</span><strong>${escapeHtml(item.first_name || item.name || "-")}</strong></div>
       <div><span>Operatsiya</span><strong>${escapeHtml(item.transactions || 0)}</strong></div>
       <div><span>Yangilangan</span><strong>${escapeHtml(updated)}</strong></div>
     </div>
     <div class="admin-actions">${action}</div>
   </article>`;
+}
+
+function choreMemberHtml(item, index) {
+  return `<article class="list-item compact" style="animation-delay:${index * 28}ms">
+    <div class="item-icon"><i data-lucide="user-round"></i></div>
+    <div>
+      <div class="item-title">${escapeHtml(item.name)}</div>
+      <div class="item-meta">Musor navbati #${index + 1} · username</div>
+    </div>
+    <button class="icon-button danger small" data-delete-chore-member="${item.id}" type="button" aria-label="O'chirish">
+      <i data-lucide="trash-2"></i>
+    </button>
+  </article>`;
+}
+
+function chorePairHtml(item, index) {
+  return `<article class="list-item compact" style="animation-delay:${index * 28}ms">
+    <div class="item-icon"><i data-lucide="users-round"></i></div>
+    <div>
+      <div class="item-title">${escapeHtml(item.first_name)} bilan ${escapeHtml(item.second_name)}</div>
+      <div class="item-meta">Yakshanba juftligi #${index + 1}</div>
+    </div>
+    <button class="icon-button danger small" data-delete-chore-pair="${item.id}" type="button" aria-label="O'chirish">
+      <i data-lucide="trash-2"></i>
+    </button>
+  </article>`;
+}
+
+function renderChores() {
+  const chores = state.admin?.chores || {};
+  const members = chores.members || [];
+  const pairs = chores.pairs || [];
+  const nextPair = chores.next_cleaning_pair || [];
+  const followingPair = chores.following_cleaning_pair || [];
+  const summary = $("choreSummary");
+  const schedule = $("choreScheduleText");
+  const memberList = $("choreMemberList");
+  const pairList = $("chorePairList");
+  if (!summary || !memberList || !pairList) return;
+
+  summary.textContent = `Bugun: ${chores.today_member || "-"} · Ertaga: ${chores.tomorrow_member || "-"}`;
+  if (schedule) {
+    const nextCleaning = nextPair.length === 2 ? `${nextPair[0]} + ${nextPair[1]}` : "belgilanmagan";
+    const followingCleaning = followingPair.length === 2 ? ` Keyingi: ${followingPair[0]} + ${followingPair[1]}.` : "";
+    schedule.textContent = `${chores.schedule_text || "Guruhda /chore_setup buyrug'i bilan yoqiladi."} Kelayotgan yakshanba: ${nextCleaning}.${followingCleaning}`;
+  }
+
+  memberList.innerHTML = "";
+  if (!members.length) {
+    memberList.innerHTML = `<div class="empty">Navbatchilar yo'q. @username qo'shing.</div>`;
+  } else {
+    members.forEach((item, index) => memberList.insertAdjacentHTML("beforeend", choreMemberHtml(item, index)));
+  }
+
+  pairList.innerHTML = "";
+  if (!pairs.length) {
+    pairList.innerHTML = `<div class="empty">Yakshanba juftliklari yo'q.</div>`;
+  } else {
+    pairs.forEach((item, index) => pairList.insertAdjacentHTML("beforeend", chorePairHtml(item, index)));
+  }
+}
+
+function updateChores(chores) {
+  state.admin = state.admin || {};
+  state.admin.chores = chores || state.admin.chores || {};
+  renderChores();
+  if (window.lucide) lucide.createIcons();
 }
 
 function renderAdmin() {
@@ -824,6 +957,7 @@ function renderAdmin() {
       );
     });
   }
+  renderChores();
 }
 
 async function reloadAdminUsers() {
@@ -837,6 +971,7 @@ async function reloadAdminUsers() {
     audit_logs: payload.audit_logs || [],
     allowed_count: payload.allowed_count || 0,
     blocked_count: payload.blocked_count || 0,
+    chores: payload.chores || state.admin?.chores || {},
   };
   renderAdmin();
   if (window.lucide) lucide.createIcons();
@@ -919,6 +1054,7 @@ function openTransactionEditor(item) {
   $("transactionCategoryInput").value = item.category || "Boshqa";
   $("transactionDescriptionInput").value = item.description || item.category || "Operatsiya";
   $("transactionCardInput").value = item.card_last4 || "";
+  $("transactionDateInput").value = toDatetimeLocal(item.occurred_at);
   $("transactionModal").hidden = false;
   document.body.classList.add("modal-open");
   window.setTimeout(() => $("transactionAmountInput").focus(), 80);
@@ -932,6 +1068,7 @@ function openNewTransactionEditor() {
   $("transactionCategoryInput").value = "Boshqa";
   $("transactionDescriptionInput").value = "";
   $("transactionCardInput").value = "";
+  $("transactionDateInput").value = toDatetimeLocal(new Date());
   $("transactionModal").hidden = false;
   document.body.classList.add("modal-open");
   window.setTimeout(() => $("transactionAmountInput").focus(), 80);
@@ -939,6 +1076,36 @@ function openNewTransactionEditor() {
 
 function closeTransactionEditor() {
   $("transactionModal").hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function openReminderEditor(item) {
+  $("reminderIdInput").value = item.id;
+  $("reminderTextInput").value = item.text || "";
+  $("reminderDateInput").value = toDatetimeLocal(item.due_at);
+  $("reminderRepeatInput").value = item.repeat_rule || "";
+  $("reminderModal").hidden = false;
+  document.body.classList.add("modal-open");
+  window.setTimeout(() => $("reminderTextInput").focus(), 80);
+}
+
+function closeReminderEditor() {
+  $("reminderModal").hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
+function openCardEditor(item) {
+  $("cardLast4Input").value = item.card_last4 || "";
+  $("cardBankInput").value = item.bank || "";
+  $("cardOwnerInput").value = item.owner || "";
+  $("cardAmountInput").value = item.amount || "";
+  $("cardModal").hidden = false;
+  document.body.classList.add("modal-open");
+  window.setTimeout(() => $("cardBankInput").focus(), 80);
+}
+
+function closeCardEditor() {
+  $("cardModal").hidden = true;
   document.body.classList.remove("modal-open");
 }
 
@@ -951,9 +1118,15 @@ document.querySelectorAll(".nav-item").forEach((button) => {
 });
 
 document.querySelectorAll("[data-open-view]").forEach((button) => {
-  button.addEventListener("click", () => {
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
     if (button.dataset.transactionFilter) setTransactionFilter(button.dataset.transactionFilter);
     setView(button.dataset.openView);
+    if (button.dataset.scrollTarget) {
+      requestAnimationFrame(() => {
+        $(button.dataset.scrollTarget)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
   });
 });
 
@@ -972,9 +1145,23 @@ $("heroBalanceCard").addEventListener("click", () => {
   setView("cards");
 });
 
+$("financeBalanceShortcut")?.addEventListener("click", () => {
+  setView("cards");
+});
+
+$("nextPrayerCard")?.addEventListener("click", () => {
+  setView("extras");
+});
+
 $("heroAvatarButton").addEventListener("click", () => {
   setView("profile");
 });
+
+$("miniAvatarButton")?.addEventListener("click", () => {
+  setView("profile");
+});
+
+$("miniRefreshButton")?.addEventListener("click", loadDashboard);
 
 $("cardsBackButton").addEventListener("click", () => {
   setView(previousView && previousView !== "cards" ? previousView : "home");
@@ -987,6 +1174,74 @@ $("transactionExpandButton").addEventListener("click", () => {
 });
 
 document.addEventListener("click", async (event) => {
+  const openFinanceRow = event.target.closest("[data-open-finance-transactions]");
+  if (openFinanceRow) {
+    setTransactionFilter("all");
+    setView("finance");
+    return;
+  }
+
+  const editReminderButton = event.target.closest("[data-edit-reminder]");
+  if (editReminderButton) {
+    const id = Number(editReminderButton.dataset.editReminder);
+    const item = (state.active_reminders || []).find((row) => Number(row.id) === id);
+    if (item) openReminderEditor(item);
+    return;
+  }
+
+  const cardMenuButton = event.target.closest("[data-card-menu]");
+  if (cardMenuButton) {
+    const cardLast4 = cardMenuButton.dataset.cardMenu;
+    const card = cardMenuButton.closest(".bank-card");
+    const isOpen = card?.classList.contains("card-menu-open");
+
+    document.querySelectorAll(".bank-card.card-menu-open").forEach((item) => {
+      item.classList.remove("card-menu-open");
+      item.querySelector(".card-action-menu")?.remove();
+      item.querySelector("[data-card-menu]")?.setAttribute("aria-expanded", "false");
+    });
+
+    if (!isOpen && card && cardLast4) {
+      card.classList.add("card-menu-open");
+      cardMenuButton.setAttribute("aria-expanded", "true");
+      cardMenuButton.insertAdjacentHTML(
+        "afterend",
+        `<div class="card-action-menu" role="menu">
+          <button class="card-action-danger" data-delete-card="${escapeHtml(cardLast4)}" type="button" role="menuitem">
+            <i data-lucide="trash-2"></i>
+            <span>O'chirish</span>
+          </button>
+        </div>`,
+      );
+      if (window.lucide) lucide.createIcons();
+    }
+    return;
+  }
+
+  const deleteCardButton = event.target.closest("[data-delete-card]");
+  if (deleteCardButton) {
+    const cardLast4 = deleteCardButton.dataset.deleteCard;
+    if (!cardLast4) return;
+    if (demoMode) {
+      state.balances = (state.balances || []).filter((item) => String(item.card_last4) !== String(cardLast4));
+      render();
+      showToast("Telegram orqali ochilganda saqlanadi");
+      return;
+    }
+    await api("/api/cards/delete", { method: "POST", body: JSON.stringify({ card_last4: cardLast4 }) });
+    await loadDashboard();
+    showToast("Karta o'chirildi");
+    return;
+  }
+
+  if (!event.target.closest(".card-action-menu")) {
+    document.querySelectorAll(".bank-card.card-menu-open").forEach((item) => {
+      item.classList.remove("card-menu-open");
+      item.querySelector(".card-action-menu")?.remove();
+      item.querySelector("[data-card-menu]")?.setAttribute("aria-expanded", "false");
+    });
+  }
+
   const deleteButton = event.target.closest("[data-delete-reminder]");
   if (deleteButton) {
     const id = Number(deleteButton.dataset.deleteReminder);
@@ -1060,6 +1315,40 @@ document.addEventListener("click", async (event) => {
     return;
   }
 
+  const deleteChoreMemberButton = event.target.closest("[data-delete-chore-member]");
+  if (deleteChoreMemberButton) {
+    const id = Number(deleteChoreMemberButton.dataset.deleteChoreMember);
+    if (!id) return;
+    if (demoMode || !state.is_admin) {
+      state.admin = state.admin || {};
+      const chores = state.admin.chores || {};
+      updateChores({ ...chores, members: (chores.members || []).filter((item) => Number(item.id) !== id) });
+      showToast("Telegram ichida saqlanadi");
+      return;
+    }
+    const result = await api("/api/admin/chore-members/delete", { method: "POST", body: JSON.stringify({ id }) });
+    updateChores(result.chores);
+    showToast("Navbatchi olib tashlandi");
+    return;
+  }
+
+  const deleteChorePairButton = event.target.closest("[data-delete-chore-pair]");
+  if (deleteChorePairButton) {
+    const id = Number(deleteChorePairButton.dataset.deleteChorePair);
+    if (!id) return;
+    if (demoMode || !state.is_admin) {
+      state.admin = state.admin || {};
+      const chores = state.admin.chores || {};
+      updateChores({ ...chores, pairs: (chores.pairs || []).filter((item) => Number(item.id) !== id) });
+      showToast("Telegram ichida saqlanadi");
+      return;
+    }
+    const result = await api("/api/admin/chore-pairs/delete", { method: "POST", body: JSON.stringify({ id }) });
+    updateChores(result.chores);
+    showToast("Juftlik olib tashlandi");
+    return;
+  }
+
   const blockButton = event.target.closest("[data-admin-block]");
   if (blockButton) {
     const userId = Number(blockButton.dataset.adminBlock);
@@ -1100,6 +1389,65 @@ $("adminAllowButton").addEventListener("click", async () => {
   showToast(result.message || "User qo'shildi");
 });
 
+$("choreMemberAddButton")?.addEventListener("click", async () => {
+  const input = $("choreMemberInput");
+  const name = normalizeUsernameInput(input.value);
+  if (!name) {
+    showToast("Navbatchi @username yozing");
+    return;
+  }
+  if (demoMode || !state.is_admin) {
+    const chores = state.admin?.chores || {};
+    const nextId = Date.now();
+    updateChores({ ...chores, members: [...(chores.members || []), { id: nextId, name }] });
+    input.value = "";
+    showToast("Telegram ichida saqlanadi");
+    return;
+  }
+  try {
+    const result = await api("/api/admin/chore-members/add", { method: "POST", body: JSON.stringify({ name }) });
+    input.value = "";
+    updateChores(result.chores);
+    showToast("Navbatchi qo'shildi");
+  } catch (error) {
+    showToast(dashboardErrorMessage(error));
+  }
+});
+
+$("chorePairAddButton")?.addEventListener("click", async () => {
+  const firstInput = $("chorePairFirstInput");
+  const secondInput = $("chorePairSecondInput");
+  const firstName = normalizeUsernameInput(firstInput.value);
+  const secondName = normalizeUsernameInput(secondInput.value);
+  if (!firstName || !secondName) {
+    showToast("Juftlikdagi ikkala @username ni yozing");
+    return;
+  }
+  if (demoMode || !state.is_admin) {
+    const chores = state.admin?.chores || {};
+    updateChores({
+      ...chores,
+      pairs: [...(chores.pairs || []), { id: Date.now(), first_name: firstName, second_name: secondName }],
+    });
+    firstInput.value = "";
+    secondInput.value = "";
+    showToast("Telegram ichida saqlanadi");
+    return;
+  }
+  try {
+    const result = await api("/api/admin/chore-pairs/add", {
+      method: "POST",
+      body: JSON.stringify({ first_name: firstName, second_name: secondName }),
+    });
+    firstInput.value = "";
+    secondInput.value = "";
+    updateChores(result.chores);
+    showToast("Juftlik qo'shildi");
+  } catch (error) {
+    showToast(dashboardErrorMessage(error));
+  }
+});
+
 $("completedToggleButton").addEventListener("click", () => {
   if ((state.completed_reminders || []).length <= 3) return;
   showAllCompletedReminders = !showAllCompletedReminders;
@@ -1108,9 +1456,25 @@ $("completedToggleButton").addEventListener("click", () => {
   if (window.lucide) lucide.createIcons();
 });
 
+$("activeToggleButton").addEventListener("click", () => {
+  if ((state.active_reminders || []).length <= 4) return;
+  showAllActiveReminders = !showAllActiveReminders;
+  renderExtras();
+  showToast(showAllActiveReminders ? "Barcha aktiv eslatmalar" : "Qisqa ro'yxat");
+  if (window.lucide) lucide.createIcons();
+});
+
 $("closeTransactionModal").addEventListener("click", closeTransactionEditor);
 $("transactionModal").addEventListener("click", (event) => {
   if (event.target.id === "transactionModal") closeTransactionEditor();
+});
+$("closeReminderModal").addEventListener("click", closeReminderEditor);
+$("reminderModal").addEventListener("click", (event) => {
+  if (event.target.id === "reminderModal") closeReminderEditor();
+});
+$("closeCardModal").addEventListener("click", closeCardEditor);
+$("cardModal").addEventListener("click", (event) => {
+  if (event.target.id === "cardModal") closeCardEditor();
 });
 
 $("transactionForm").addEventListener("submit", async (event) => {
@@ -1122,11 +1486,9 @@ $("transactionForm").addEventListener("submit", async (event) => {
     category: $("transactionCategoryInput").value,
     description: $("transactionDescriptionInput").value,
     card_last4: $("transactionCardInput").value,
+    occurred_at: fromDatetimeLocal($("transactionDateInput").value),
   };
   if (id) body.id = id;
-  body.occurred_at = id
-    ? (state.transactions || []).find((row) => Number(row.id) === id)?.occurred_at
-    : new Date().toISOString();
   if (demoMode) {
     if (id) {
       state.transactions = (state.transactions || []).map((item) =>
@@ -1148,6 +1510,73 @@ $("transactionForm").addEventListener("submit", async (event) => {
   closeTransactionEditor();
   await loadDashboard();
   showToast(id ? "Operatsiya yangilandi" : "Operatsiya qo'shildi");
+});
+
+$("reminderForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const id = Number($("reminderIdInput").value);
+  const body = {
+    id,
+    text: $("reminderTextInput").value,
+    due_at: fromDatetimeLocal($("reminderDateInput").value),
+    repeat_rule: $("reminderRepeatInput").value,
+  };
+  if (!id) return;
+  if (demoMode) {
+    state.active_reminders = (state.active_reminders || []).map((item) =>
+      Number(item.id) === id ? { ...item, ...body } : item,
+    );
+    closeReminderEditor();
+    renderExtras();
+    showToast("Telegram orqali ochilganda saqlanadi");
+    return;
+  }
+  await api("/api/reminders/update", { method: "POST", body: JSON.stringify(body) });
+  closeReminderEditor();
+  await loadDashboard();
+  showToast("Eslatma yangilandi");
+});
+
+$("cardForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const body = {
+    card_last4: $("cardLast4Input").value,
+    bank: $("cardBankInput").value,
+    owner: $("cardOwnerInput").value,
+    amount: $("cardAmountInput").value,
+  };
+  if (demoMode) {
+    state.balances = (state.balances || []).map((item) =>
+      String(item.card_last4) === String(body.card_last4)
+        ? { ...item, bank: body.bank, owner: body.owner, amount: Number(String(body.amount).replace(/\D/g, "")) || item.amount }
+        : item,
+    );
+    closeCardEditor();
+    renderCardWheel();
+    showToast("Telegram orqali ochilganda saqlanadi");
+    return;
+  }
+  await api("/api/cards/update", { method: "POST", body: JSON.stringify(body) });
+  closeCardEditor();
+  await loadDashboard();
+  showToast("Karta yangilandi");
+});
+
+$("deleteCardButton").addEventListener("click", async () => {
+  const cardLast4 = $("cardLast4Input").value;
+  if (!cardLast4) return;
+  if (!window.confirm(`**** ${cardLast4} kartasi ro'yxatdan olib tashlansinmi?`)) return;
+  if (demoMode) {
+    state.balances = (state.balances || []).filter((item) => String(item.card_last4) !== String(cardLast4));
+    closeCardEditor();
+    render();
+    showToast("Telegram orqali ochilganda saqlanadi");
+    return;
+  }
+  await api("/api/cards/delete", { method: "POST", body: JSON.stringify({ card_last4: cardLast4 }) });
+  closeCardEditor();
+  await loadDashboard();
+  showToast("Karta olib tashlandi");
 });
 
 $("saveDailyLimitButton").addEventListener("click", async () => {
@@ -1191,67 +1620,76 @@ $("saveCategoryLimitButton").addEventListener("click", async () => {
 
 $("dailyReportToggleButton").addEventListener("click", async () => {
   const enabled = !Boolean(state.settings?.daily_report_enabled);
+  state.settings = state.settings || {};
+  state.settings.daily_report_enabled = enabled;
+  renderFinance();
+  if (window.lucide) lucide.createIcons();
   if (demoMode) {
-    state.settings = state.settings || {};
-    state.settings.daily_report_enabled = enabled;
-    renderFinance();
     showToast("Telegram orqali ochilganda saqlanadi");
     return;
   }
-  await api("/api/settings/daily-report", { method: "POST", body: JSON.stringify({ enabled }) });
-  await loadDashboard();
-  showToast(enabled ? "Kunlik hisobot yoqildi" : "Kunlik hisobot o'chirildi");
+  try {
+    await api("/api/settings/daily-report", { method: "POST", body: JSON.stringify({ enabled }) });
+    showToast(enabled ? "Kunlik hisobot yoqildi" : "Kunlik hisobot o'chirildi");
+  } catch (error) {
+    state.settings.daily_report_enabled = !enabled;
+    renderFinance();
+    showToast(dashboardErrorMessage(error));
+  }
 });
 
 $("exportCsvButton").addEventListener("click", async () => {
   if (demoMode) {
-    showToast("CSV export Telegram ichida ishlaydi");
+    showToast("Excel export Telegram ichida ishlaydi");
     return;
   }
-  const response = await fetch("/api/export/transactions.csv", { headers: telegramHeaders() });
-  if (!response.ok) throw new Error(await response.text());
-  const blob = await response.blob();
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "assistant-transactions.csv";
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-  showToast("CSV tayyor");
+  const result = await api("/api/export/transactions.xlsx", {
+    method: "POST",
+    body: JSON.stringify({ period: periodFilter, type: transactionFilter }),
+  });
+  showToast(`${result.count || 0} ta operatsiya Excel qilib Telegramga yuborildi`);
 });
 
 $("togglePrayerButton").addEventListener("click", async () => {
+  const next = !Boolean(state.prayer?.enabled);
+  state.prayer.enabled = next;
+  state.prayer.times = (state.prayer?.times || []).map((item) => ({
+    ...item,
+    enabled: item.can_notify ? next : false,
+  }));
+  renderPrayer();
+  if (window.lucide) lucide.createIcons();
   if (demoMode) {
-    const next = !state.prayer.enabled;
-    state.prayer.enabled = next;
-    state.prayer.times = (state.prayer.times || []).map((item) => ({
-      ...item,
-      enabled: item.can_notify ? next : false,
-    }));
-    renderExtras();
     showToast("Telegram orqali ochilganda saqlanadi");
     return;
   }
-  await api("/api/prayer/toggle", { method: "POST", body: JSON.stringify({ enabled: !state.prayer.enabled }) });
-  await loadDashboard();
-  showToast("Namoz eslatmasi yangilandi");
+  try {
+    await api("/api/prayer/toggle", { method: "POST", body: JSON.stringify({ enabled: next }) });
+    showToast("Namoz eslatmasi yangilandi");
+  } catch (error) {
+    await loadDashboard();
+    showToast(dashboardErrorMessage(error));
+  }
 });
 
 $("leadTimeOptions").addEventListener("click", async (event) => {
   const button = event.target.closest("[data-lead-minutes]");
   if (!button) return;
   const minutes = Number(button.dataset.leadMinutes);
+  state.prayer.minutes_before = minutes;
+  renderPrayer();
+  if (window.lucide) lucide.createIcons();
   if (demoMode) {
-    state.prayer.minutes_before = minutes;
-    renderPrayer();
     showToast("Telegram orqali ochilganda saqlanadi");
     return;
   }
-  await api("/api/prayer/lead-time", { method: "POST", body: JSON.stringify({ minutes }) });
-  await loadDashboard();
-  showToast(`${minutes} daqiqa oldin eslatish saqlandi`);
+  try {
+    await api("/api/prayer/lead-time", { method: "POST", body: JSON.stringify({ minutes }) });
+    showToast(`${minutes} daqiqa oldin eslatish saqlandi`);
+  } catch (error) {
+    await loadDashboard();
+    showToast(dashboardErrorMessage(error));
+  }
 });
 
 $("prayerTimes").addEventListener("click", async (event) => {
@@ -1261,16 +1699,21 @@ $("prayerTimes").addEventListener("click", async (event) => {
   const item = (state.prayer?.times || []).find((row) => row.key === key);
   if (!item) return;
   const enabled = !item.enabled;
+  item.enabled = enabled;
+  state.prayer.enabled = state.prayer.times.some((row) => row.can_notify && row.enabled);
+  renderPrayer();
+  if (window.lucide) lucide.createIcons();
   if (demoMode) {
-    item.enabled = enabled;
-    state.prayer.enabled = state.prayer.times.some((row) => row.can_notify && row.enabled);
-    renderExtras();
     showToast("Telegram orqali ochilganda saqlanadi");
     return;
   }
-  await api("/api/prayer/key", { method: "POST", body: JSON.stringify({ key, enabled }) });
-  await loadDashboard();
-  showToast(`${item.name} eslatmasi ${enabled ? "yoqildi" : "o'chirildi"}`);
+  try {
+    await api("/api/prayer/key", { method: "POST", body: JSON.stringify({ key, enabled }) });
+    showToast(`${item.name} eslatmasi ${enabled ? "yoqildi" : "o'chirildi"}`);
+  } catch (error) {
+    await loadDashboard();
+    showToast(dashboardErrorMessage(error));
+  }
 });
 
 $("citySelect").addEventListener("change", async (event) => {
@@ -1304,37 +1747,30 @@ window.addEventListener("resize", () => {
      2. Time lock equal to the morph duration — once a toggle has fired we
         ignore further scroll events until the layout has had a chance to
         settle. */
-let heroIsCompact = false;
-let heroScrollPending = false;
-let heroLastToggleAt = 0;
-const HERO_COMPACT_ENTER = 50;
-const HERO_COMPACT_EXIT = 6;
-const HERO_TOGGLE_COOLDOWN = 380;
+let miniHeaderPending = false;
+const MINI_HEADER_ENTER = 86;
+const MINI_HEADER_EXIT = 24;
 
-function applyHeroState() {
-  const now = performance.now ? performance.now() : Date.now();
-  if (now - heroLastToggleAt < HERO_TOGGLE_COOLDOWN) return;
-
+function updateMiniHeaderVisibility() {
   const y = window.scrollY || window.pageYOffset || 0;
-  let want = heroIsCompact;
-  if (!heroIsCompact && y > HERO_COMPACT_ENTER) want = true;
-  else if (heroIsCompact && y < HERO_COMPACT_EXIT) want = false;
-
-  if (want !== heroIsCompact) {
-    heroIsCompact = want;
-    heroLastToggleAt = now;
-    document.querySelector(".hero")?.classList.toggle("compact", want);
+  const shown = document.body.classList.contains("mini-header-visible");
+  const forceShort = ["finance", "extras"].includes(activeView);
+  let want = forceShort || shown;
+  if (!shown && y > MINI_HEADER_ENTER) want = true;
+  else if (shown && y < MINI_HEADER_EXIT && !forceShort) want = false;
+  if (want !== shown) {
+    document.body.classList.toggle("mini-header-visible", want);
   }
 }
 
 window.addEventListener(
   "scroll",
   () => {
-    if (heroScrollPending) return;
-    heroScrollPending = true;
+    if (miniHeaderPending) return;
+    miniHeaderPending = true;
     requestAnimationFrame(() => {
-      heroScrollPending = false;
-      applyHeroState();
+      miniHeaderPending = false;
+      updateMiniHeaderVisibility();
     });
   },
   { passive: true },
@@ -1348,3 +1784,4 @@ if (tg) {
 applyTheme(localStorage.getItem("assistant_theme") || "dark");
 document.body.dataset.activeView = activeView;
 loadDashboard();
+updateMiniHeaderVisibility();

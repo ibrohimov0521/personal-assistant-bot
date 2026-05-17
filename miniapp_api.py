@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import csv
-import io
 import logging
 import os
 import re
@@ -27,11 +25,13 @@ from finance_store import (
     category_limit_key,
     clear_user_data,
     create_manual_transaction,
+    delete_card_balance,
     delete_transaction,
     delete_user_setting,
     get_transactions,
     set_category_limit,
     set_user_setting,
+    update_card_balance,
     update_transaction,
 )
 from miniapp_auth import no_store_headers, request_json, validate_telegram_init_user
@@ -47,8 +47,15 @@ class MiniAppContext:
     list_audit_logs: Callable[[int], Awaitable[list[dict]]]
     add_audit_log: Callable[[int, str, int | None, str], Awaitable[None]]
     delete_reminder: Callable[[int, int], Awaitable[bool]]
+    update_reminder: Callable[[int, int, Any, str, str], Awaitable[bool]]
+    send_transactions_export: Callable[[int, str, str], Awaitable[dict]]
     get_prayer_setting: Callable[..., Awaitable[dict]]
     save_prayer_setting: Callable[..., Awaitable[dict]]
+    group_chore_payload: Callable[[], Awaitable[dict]]
+    add_chore_member: Callable[[str], Awaitable[dict]]
+    delete_chore_member: Callable[[int], Awaitable[dict]]
+    add_chore_pair: Callable[[str, str], Awaitable[dict]]
+    delete_chore_pair: Callable[[int], Awaitable[dict]]
 
 
 @web.middleware
@@ -68,6 +75,9 @@ async def miniapp_error_middleware(
 class MiniAppApi:
     def __init__(self, ctx: MiniAppContext) -> None:
         self.ctx = ctx
+
+    def finance_gone(self) -> None:
+        raise web.HTTPGone(text="Moliya bo'limi arxivlangan va Mini App'dan olib tashlangan.")
 
     def local_dev_user_id(self, request: web.Request) -> int | None:
         preview_enabled = os.getenv("MINIAPP_ALLOW_LOCAL_PREVIEW", "").strip().lower()
@@ -139,6 +149,7 @@ class MiniAppApi:
                 "audit_logs": await self.ctx.list_audit_logs(20),
                 "allowed_count": len(allowed_user_ids()),
                 "blocked_count": len(blocked_user_ids()),
+                "chores": await self.ctx.group_chore_payload(),
             },
             headers=no_store_headers(),
         )
@@ -196,6 +207,55 @@ class MiniAppApi:
             headers=no_store_headers(),
         )
 
+    async def chore_member_add(self, request: web.Request) -> web.Response:
+        admin_id = await self.admin_user_id(request)
+        body = await request_json(request)
+        name = str(body.get("name", "")).strip()
+        try:
+            await self.ctx.add_chore_member(name)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc))
+        await self.ctx.add_audit_log(admin_id, "chore_member_add", None, name)
+        chore = await self.ctx.group_chore_payload()
+        return web.json_response({"ok": True, "chores": chore}, headers=no_store_headers())
+
+    async def chore_member_delete(self, request: web.Request) -> web.Response:
+        admin_id = await self.admin_user_id(request)
+        body = await request_json(request)
+        try:
+            member_id = int(body.get("id"))
+        except (TypeError, ValueError):
+            raise web.HTTPBadRequest(text="Member id required")
+        await self.ctx.delete_chore_member(member_id)
+        await self.ctx.add_audit_log(admin_id, "chore_member_delete", None, str(member_id))
+        chore = await self.ctx.group_chore_payload()
+        return web.json_response({"ok": True, "chores": chore}, headers=no_store_headers())
+
+    async def chore_pair_add(self, request: web.Request) -> web.Response:
+        admin_id = await self.admin_user_id(request)
+        body = await request_json(request)
+        first_name = str(body.get("first_name", "")).strip()
+        second_name = str(body.get("second_name", "")).strip()
+        try:
+            await self.ctx.add_chore_pair(first_name, second_name)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc))
+        await self.ctx.add_audit_log(admin_id, "chore_pair_add", None, f"{first_name} / {second_name}")
+        chore = await self.ctx.group_chore_payload()
+        return web.json_response({"ok": True, "chores": chore}, headers=no_store_headers())
+
+    async def chore_pair_delete(self, request: web.Request) -> web.Response:
+        admin_id = await self.admin_user_id(request)
+        body = await request_json(request)
+        try:
+            pair_id = int(body.get("id"))
+        except (TypeError, ValueError):
+            raise web.HTTPBadRequest(text="Pair id required")
+        await self.ctx.delete_chore_pair(pair_id)
+        await self.ctx.add_audit_log(admin_id, "chore_pair_delete", None, str(pair_id))
+        chore = await self.ctx.group_chore_payload()
+        return web.json_response({"ok": True, "chores": chore}, headers=no_store_headers())
+
     async def reminder_delete(self, request: web.Request) -> web.Response:
         user_id = await self.user_id(request)
         body = await request_json(request)
@@ -206,115 +266,54 @@ class MiniAppApi:
         ok = await self.ctx.delete_reminder(user_id, reminder_id)
         return web.json_response({"ok": ok}, headers=no_store_headers())
 
-    async def transaction_delete(self, request: web.Request) -> web.Response:
+    async def reminder_update(self, request: web.Request) -> web.Response:
         user_id = await self.user_id(request)
         body = await request_json(request)
         try:
-            transaction_id = int(body.get("id"))
+            reminder_id = int(body.get("id"))
         except (TypeError, ValueError):
-            raise web.HTTPBadRequest(text="Transaction id required")
-        ok = await delete_transaction(user_id, transaction_id)
+            raise web.HTTPBadRequest(text="Reminder id required")
+        text = str(body.get("text", "")).strip()[:500]
+        due_raw = str(body.get("due_at", "")).strip()
+        if not text or not due_raw:
+            raise web.HTTPBadRequest(text="Reminder text and date required")
+        try:
+            due_at = parse_utc(due_raw)
+        except ValueError:
+            raise web.HTTPBadRequest(text="Invalid reminder date")
+        repeat_rule = str(body.get("repeat_rule", "")).strip()
+        ok = await self.ctx.update_reminder(user_id, reminder_id, due_at, text, repeat_rule)
         return web.json_response({"ok": ok}, headers=no_store_headers())
+
+    async def transaction_delete(self, request: web.Request) -> web.Response:
+        self.finance_gone()
 
     async def transaction_update(self, request: web.Request) -> web.Response:
-        user_id = await self.user_id(request)
-        body = await request_json(request)
-        try:
-            transaction_id = int(body.get("id"))
-            amount = int(clean_amount(str(body.get("amount", ""))))
-        except (TypeError, ValueError):
-            raise web.HTTPBadRequest(text="Transaction id and amount required")
-        tx_type = str(body.get("type", "")).strip()
-        category = str(body.get("category", "Boshqa")).strip()[:60] or "Boshqa"
-        description = str(body.get("description", "")).strip()[:120]
-        occurred_at = None
-        occurred_raw = str(body.get("occurred_at", "")).strip()
-        if occurred_raw:
-            try:
-                occurred_at = parse_utc(occurred_raw)
-            except ValueError:
-                occurred_at = None
-        ok = await update_transaction(user_id, transaction_id, tx_type, amount, category, description, occurred_at)
-        return web.json_response({"ok": ok}, headers=no_store_headers())
+        self.finance_gone()
+
+    async def card_update(self, request: web.Request) -> web.Response:
+        self.finance_gone()
+
+    async def card_delete(self, request: web.Request) -> web.Response:
+        self.finance_gone()
 
     async def transaction_create(self, request: web.Request) -> web.Response:
-        user_id = await self.user_id(request)
-        body = await request_json(request)
-        tx_type = str(body.get("type", "")).strip()
-        if tx_type not in {"income", "expense"}:
-            raise web.HTTPBadRequest(text="Transaction type required")
-        amount = clean_amount(str(body.get("amount", "")))
-        if amount <= 0:
-            raise web.HTTPBadRequest(text="Amount required")
-        category = str(body.get("category", "Boshqa")).strip()[:60] or "Boshqa"
-        description = str(body.get("description", "")).strip()[:120]
-        card_last4 = re.sub(r"\D+", "", str(body.get("card_last4", "")))[-4:]
-        occurred_at = None
-        occurred_raw = str(body.get("occurred_at", "")).strip()
-        if occurred_raw:
-            try:
-                occurred_at = parse_utc(occurred_raw)
-            except ValueError:
-                occurred_at = None
-        tx_id = await create_manual_transaction(user_id, tx_type, amount, category, description, card_last4, occurred_at)
-        return web.json_response({"ok": True, "id": tx_id}, headers=no_store_headers())
+        self.finance_gone()
 
     async def category_limit_set(self, request: web.Request) -> web.Response:
-        user_id = await self.user_id(request)
-        body = await request_json(request)
-        category = str(body.get("category", "")).strip()[:60]
-        if not category:
-            raise web.HTTPBadRequest(text="Category required")
-        amount = clean_amount(str(body.get("amount", "")))
-        await set_category_limit(user_id, category, amount)
-        return web.json_response({"ok": True, "category": category, "amount": amount}, headers=no_store_headers())
+        self.finance_gone()
 
     async def category_limit_delete(self, request: web.Request) -> web.Response:
-        user_id = await self.user_id(request)
-        body = await request_json(request)
-        category = str(body.get("category", "")).strip()[:60]
-        if not category:
-            raise web.HTTPBadRequest(text="Category required")
-        await delete_user_setting(user_id, category_limit_key(category))
-        return web.json_response({"ok": True, "category": category}, headers=no_store_headers())
+        self.finance_gone()
 
     async def daily_limit(self, request: web.Request) -> web.Response:
-        user_id = await self.user_id(request)
-        body = await request_json(request)
-        amount = clean_amount(str(body.get("amount", "")))
-        await set_user_setting(user_id, "daily_expense_limit", str(max(amount, 0)))
-        return web.json_response({"ok": True, "amount": amount}, headers=no_store_headers())
+        self.finance_gone()
 
     async def daily_report_setting(self, request: web.Request) -> web.Response:
-        user_id = await self.user_id(request)
-        body = await request_json(request)
-        enabled = bool(body.get("enabled"))
-        await set_user_setting(user_id, "daily_report_enabled", "1" if enabled else "0")
-        return web.json_response({"ok": True, "enabled": enabled}, headers=no_store_headers())
+        self.finance_gone()
 
     async def export_transactions(self, request: web.Request) -> web.Response:
-        user_id = await self.user_id(request)
-        rows = await get_transactions(user_id, limit=10000)
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow(["id", "date", "type", "amount", "currency", "source", "card_last4", "category", "description"])
-        for row in rows:
-            writer.writerow(
-                [
-                    row["id"],
-                    row["occurred_at"].isoformat(),
-                    row["type"],
-                    row["amount"],
-                    row["currency"],
-                    row["source"],
-                    row["card_last4"],
-                    row["category"],
-                    row["description"],
-                ]
-            )
-        headers = no_store_headers()
-        headers["Content-Disposition"] = 'attachment; filename="assistant-transactions.csv"'
-        return web.Response(text=output.getvalue(), content_type="text/csv", charset="utf-8", headers=headers)
+        self.finance_gone()
 
     async def clear_data(self, request: web.Request) -> web.Response:
         user_id = await self.user_id(request)
@@ -383,15 +382,22 @@ class MiniAppApi:
         app.router.add_post("/api/admin/allow", self.admin_allow)
         app.router.add_post("/api/admin/block", self.admin_block)
         app.router.add_post("/api/admin/unblock", self.admin_unblock)
+        app.router.add_post("/api/admin/chore-members/add", self.chore_member_add)
+        app.router.add_post("/api/admin/chore-members/delete", self.chore_member_delete)
+        app.router.add_post("/api/admin/chore-pairs/add", self.chore_pair_add)
+        app.router.add_post("/api/admin/chore-pairs/delete", self.chore_pair_delete)
         app.router.add_post("/api/reminders/delete", self.reminder_delete)
+        app.router.add_post("/api/reminders/update", self.reminder_update)
         app.router.add_post("/api/transactions/create", self.transaction_create)
         app.router.add_post("/api/transactions/delete", self.transaction_delete)
         app.router.add_post("/api/transactions/update", self.transaction_update)
+        app.router.add_post("/api/cards/update", self.card_update)
+        app.router.add_post("/api/cards/delete", self.card_delete)
         app.router.add_post("/api/category-limits/set", self.category_limit_set)
         app.router.add_post("/api/category-limits/delete", self.category_limit_delete)
         app.router.add_post("/api/settings/daily-limit", self.daily_limit)
         app.router.add_post("/api/settings/daily-report", self.daily_report_setting)
-        app.router.add_get("/api/export/transactions.csv", self.export_transactions)
+        app.router.add_post("/api/export/transactions.xlsx", self.export_transactions)
         app.router.add_post("/api/data/clear", self.clear_data)
         app.router.add_post("/api/prayer/toggle", self.prayer_toggle)
         app.router.add_post("/api/prayer/key", self.prayer_key)

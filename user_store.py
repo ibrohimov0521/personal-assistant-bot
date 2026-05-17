@@ -17,10 +17,6 @@ def _json_dt(dt: datetime) -> str:
     return dt.astimezone(LOCAL_TZ).isoformat()
 
 
-def _json_money(amount: int) -> str:
-    return f"{amount:,}".replace(",", " ") + " so'm"
-
-
 async def save_user_profile(
     user_id: int,
     chat_id: int | None = None,
@@ -28,21 +24,26 @@ async def save_user_profile(
     last_name: str = "",
     username: str = "",
     language_code: str = "",
+    photo_url: str = "",
+    phone_number: str = "",
     is_bot: bool = False,
 ) -> None:
     async with connect_db() as db:
         await db.execute(
             """
             INSERT INTO user_profiles (
-                user_id, chat_id, first_name, last_name, username, language_code, is_bot, created_at, updated_at
+                user_id, chat_id, first_name, last_name, username, language_code, photo_url, phone_number,
+                is_bot, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 chat_id = COALESCE(excluded.chat_id, user_profiles.chat_id),
                 first_name = excluded.first_name,
                 last_name = excluded.last_name,
                 username = excluded.username,
                 language_code = excluded.language_code,
+                photo_url = COALESCE(NULLIF(excluded.photo_url, ''), user_profiles.photo_url),
+                phone_number = COALESCE(NULLIF(excluded.phone_number, ''), user_profiles.phone_number),
                 is_bot = excluded.is_bot,
                 updated_at = excluded.updated_at
             """,
@@ -53,6 +54,8 @@ async def save_user_profile(
                 last_name[:120],
                 username[:120],
                 language_code[:20],
+                photo_url[:500],
+                phone_number[:40],
                 1 if is_bot else 0,
                 utc_text(),
                 utc_text(),
@@ -88,6 +91,7 @@ async def save_user_profile_from_webapp_user(user: dict, chat_id: int | None = N
         last_name=str(user.get("last_name") or ""),
         username=str(user.get("username") or ""),
         language_code=str(user.get("language_code") or ""),
+        photo_url=str(user.get("photo_url") or ""),
         is_bot=bool(user.get("is_bot")),
     )
 
@@ -96,7 +100,8 @@ async def get_user_profile(user_id: int) -> dict | None:
     async with connect_db() as db:
         rows = await db.execute_fetchall(
             """
-            SELECT user_id, chat_id, first_name, last_name, username, language_code, is_bot, created_at, updated_at
+            SELECT user_id, chat_id, first_name, last_name, username, language_code, photo_url, phone_number,
+                   is_bot, created_at, updated_at
             FROM user_profiles
             WHERE user_id = ?
             LIMIT 1
@@ -113,9 +118,11 @@ async def get_user_profile(user_id: int) -> dict | None:
         "last_name": row[3] or "",
         "username": row[4] or "",
         "language_code": row[5] or "",
-        "is_bot": bool(row[6]),
-        "created_at": parse_utc(row[7]),
-        "updated_at": parse_utc(row[8]),
+        "photo_url": row[6] or "",
+        "phone_number": row[7] or "",
+        "is_bot": bool(row[8]),
+        "created_at": parse_utc(row[9]),
+        "updated_at": parse_utc(row[10]),
     }
 
 
@@ -127,28 +134,10 @@ async def admin_user_rows() -> list[dict]:
     async with connect_db() as db:
         profile_rows = await db.execute_fetchall(
             f"""
-            SELECT user_id, chat_id, first_name, last_name, username, language_code, is_bot, created_at, updated_at
+            SELECT user_id, chat_id, first_name, last_name, username, language_code, photo_url, phone_number,
+                   is_bot, created_at, updated_at
             FROM user_profiles
             WHERE user_id IN ({placeholders})
-            """,
-            tuple(ids),
-        )
-        tx_rows = await db.execute_fetchall(
-            f"""
-            SELECT user_id, COUNT(*), COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0),
-                   COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0)
-            FROM transactions
-            WHERE user_id IN ({placeholders})
-            GROUP BY user_id
-            """,
-            tuple(ids),
-        )
-        card_rows = await db.execute_fetchall(
-            f"""
-            SELECT user_id, COUNT(*), COALESCE(SUM(amount), 0)
-            FROM card_balances
-            WHERE user_id IN ({placeholders})
-            GROUP BY user_id
             """,
             tuple(ids),
         )
@@ -160,14 +149,14 @@ async def admin_user_rows() -> list[dict]:
             "last_name": row[3] or "",
             "username": row[4] or "",
             "language_code": row[5] or "",
-            "is_bot": bool(row[6]),
-            "created_at": parse_utc(row[7]),
-            "updated_at": parse_utc(row[8]),
+            "photo_url": row[6] or "",
+            "phone_number": row[7] or "",
+            "is_bot": bool(row[8]),
+            "created_at": parse_utc(row[9]),
+            "updated_at": parse_utc(row[10]),
         }
         for row in profile_rows
     }
-    tx_stats = {int(row[0]): {"transactions": int(row[1]), "income": int(row[2]), "expense": int(row[3])} for row in tx_rows}
-    card_stats = {int(row[0]): {"cards": int(row[1]), "balance": int(row[2])} for row in card_rows}
     blocked = blocked_user_ids()
     admins = admin_user_ids()
     allowed = allowed_user_ids()
@@ -182,13 +171,13 @@ async def admin_user_rows() -> list[dict]:
                 "last_name": "",
                 "username": "",
                 "language_code": "",
+                "photo_url": "",
+                "phone_number": "",
                 "is_bot": False,
                 "created_at": None,
                 "updated_at": None,
             },
         )
-        stats = tx_stats.get(user_id, {"transactions": 0, "income": 0, "expense": 0})
-        cards = card_stats.get(user_id, {"cards": 0, "balance": 0})
         full_name = " ".join(part for part in [profile["first_name"], profile["last_name"]] if part).strip()
         result.append(
             {
@@ -198,20 +187,15 @@ async def admin_user_rows() -> list[dict]:
                 "last_name": profile["last_name"],
                 "username": profile["username"],
                 "language_code": profile["language_code"],
+                "photo_url": profile["photo_url"],
+                "phone_number": profile["phone_number"],
                 "is_bot": profile["is_bot"],
                 "name": full_name or f"User {user_id}",
                 "username_text": f"@{profile['username']}" if profile["username"] else "Ko'rsatilmagan",
                 "allowed": user_id in allowed,
                 "blocked": user_id in blocked,
                 "admin": user_id in admins,
-                "transactions": stats["transactions"],
-                "income": stats["income"],
-                "income_text": _json_money(stats["income"]),
-                "expense": stats["expense"],
-                "expense_text": _json_money(stats["expense"]),
-                "cards": cards["cards"],
-                "balance": cards["balance"],
-                "balance_text": _json_money(cards["balance"]),
+                "transactions": 0,
                 "created_at_text": _json_dt(profile["created_at"]) if profile.get("created_at") else "",
                 "updated_at_text": _json_dt(profile["updated_at"]) if profile.get("updated_at") else "",
             }

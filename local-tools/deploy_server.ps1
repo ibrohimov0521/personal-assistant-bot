@@ -15,6 +15,7 @@ try {
         "assistant_bot.py",
         "access_control.py",
         "ai_assistant.py",
+        "chores.py",
         "db.py",
         "db_schema.py",
         "finance.py",
@@ -27,7 +28,6 @@ try {
         "reminder_store.py",
         "reminders.py",
         "user_store.py",
-        "forwarder.py",
         "README.md"
     )
     $miniappFiles = @(
@@ -48,7 +48,7 @@ cd $RemoteDir &&
 .venv/bin/python -m unittest discover -s tests &&
 sudo systemctl restart assistant-bot &&
 sleep 5 &&
-systemctl is-active assistant-bot assistant-forwarder cloudflared &&
+systemctl is-active assistant-bot cloudflared &&
 curl -I -s https://app.bestgamers.win/ | head -n 8
 "@
 

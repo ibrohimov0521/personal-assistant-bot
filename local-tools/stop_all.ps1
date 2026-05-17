@@ -1,4 +1,4 @@
-$patterns = @("assistant_bot.py", "forwarder.py", "cloudflared.exe")
+$patterns = @("assistant_bot.py", "cloudflared.exe")
 $processes = Get-CimInstance Win32_Process | Where-Object {
     $command = $_.CommandLine
     $path = $_.ExecutablePath

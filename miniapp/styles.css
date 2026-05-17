@@ -4,10 +4,10 @@
 
 .app-shell {
   position: relative;
-  width: min(720px, 100%);
+  width: min(520px, 100%);
   min-height: 100vh;
   margin: 0 auto;
-  padding: 22px 20px 110px;
+  padding: 16px 18px 108px;
   /* `clip` avoids creating a scroll container, so position: sticky inside
      pile-stack works against the viewport. `hidden` is the fallback. */
   overflow-x: hidden;
@@ -43,9 +43,9 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background:
-    radial-gradient(120% 80% at 0% 0%, rgba(0, 217, 160, 0.16), transparent 55%),
-    radial-gradient(120% 80% at 100% 100%, rgba(110, 168, 254, 0.10), transparent 55%),
-    linear-gradient(160deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0) 100%),
+    radial-gradient(120% 80% at 0% 0%, rgba(0, 174, 239, 0.18), transparent 55%),
+    radial-gradient(120% 80% at 100% 100%, rgba(23, 212, 193, 0.14), transparent 55%),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.01) 100%),
     var(--panel);
   box-shadow: var(--shadow-md);
   overflow: hidden;
@@ -140,7 +140,7 @@ body[data-active-view="home"] .hero.compact .hero-username {
 
 body[data-active-view="profile"] .app-shell,
 body[data-active-view="admin"] .app-shell {
-  padding-top: 28px;
+  padding-top: 14px;
 }
 
 .hero-aurora {
@@ -148,8 +148,8 @@ body[data-active-view="admin"] .app-shell {
   inset: -40% -10% auto -10%;
   height: 60%;
   background:
-    radial-gradient(50% 60% at 30% 40%, rgba(0, 217, 160, 0.45), transparent 70%),
-    radial-gradient(50% 60% at 80% 60%, rgba(110, 168, 254, 0.35), transparent 70%);
+    radial-gradient(50% 60% at 30% 40%, rgba(0, 174, 239, 0.48), transparent 70%),
+    radial-gradient(50% 60% at 80% 60%, rgba(23, 212, 193, 0.34), transparent 70%);
   filter: blur(46px);
   opacity: 0.55;
   pointer-events: none;
@@ -1300,6 +1300,269 @@ select:focus {
   font-size: 11px;
 }
 
+/* Liquid glass refinement */
+.hero,
+.soft-card,
+.panel,
+.profile-card,
+.list-item,
+.category-row,
+.balance-card,
+.prayer-row,
+.summary-card,
+.quick-card,
+.finance-short-card,
+.modal-card,
+.bottom-nav {
+  backdrop-filter: blur(22px) saturate(1.25);
+  -webkit-backdrop-filter: blur(22px) saturate(1.25);
+}
+
+.hero {
+  padding: 18px 18px 20px;
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04)),
+    var(--panel);
+}
+
+.hero.compact {
+  padding-top: 8px;
+  padding-bottom: 9px;
+  border-radius: 0 0 16px 16px;
+}
+
+.hero-top {
+  margin-bottom: 10px;
+}
+
+.hero.compact .hero-top {
+  margin-bottom: 4px;
+}
+
+.balance-hero {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.hero.compact .balance-hero {
+  padding: 4px 8px;
+}
+
+.balance-hero strong {
+  font-size: 26px;
+}
+
+.hero.compact .balance-hero strong {
+  font-size: 18px;
+}
+
+.section-head {
+  margin: 18px 2px 9px;
+}
+
+.quick-grid {
+  gap: 9px;
+}
+
+.quick-card,
+.summary-card {
+  min-height: 74px;
+  padding: 12px;
+  border-radius: 14px;
+}
+
+.quick-card strong {
+  font-size: 18px;
+}
+
+.quick-card-icon,
+.item-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 11px;
+}
+
+.soft-card,
+.panel {
+  padding: 14px;
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
+    var(--panel);
+}
+
+.next-card {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  color: var(--text);
+  text-align: left;
+}
+
+.next-card strong {
+  margin-top: 8px;
+  font-size: 22px;
+}
+
+.finance-short-card {
+  width: 100%;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.18), rgba(255, 255, 255, 0.06)),
+    var(--panel);
+  color: var(--text);
+  text-align: left;
+  display: grid;
+  gap: 3px;
+}
+
+.finance-short-card span,
+.finance-short-card small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.finance-short-card strong {
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.list-item,
+.pile-stack.prayer-stack > .prayer-row {
+  min-height: 54px;
+  padding: 9px 11px;
+  gap: 10px;
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035)),
+    var(--panel);
+}
+
+.list-item.clickable {
+  cursor: pointer;
+}
+
+.item-title {
+  font-size: 13px;
+}
+
+.item-meta {
+  font-size: 11px;
+}
+
+.amount {
+  font-size: 13px;
+}
+
+.saving-meter {
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.saving-meter strong {
+  margin-top: 2px;
+  font-size: 20px;
+}
+
+.meter-ring {
+  width: 52px;
+  height: 52px;
+  font-size: 12px;
+}
+
+.progress-line {
+  margin-top: 10px;
+}
+
+.ghost-action,
+.primary-button,
+.segment,
+.expand-button,
+input,
+select {
+  border-radius: 12px;
+}
+
+.ghost-action {
+  flex: 1 1 118px;
+  min-height: 38px;
+  padding: 0 10px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.035)),
+    var(--panel-2);
+}
+
+.segment.active,
+.ghost-action.active {
+  background: linear-gradient(135deg, var(--accent-2), var(--info));
+  color: #052033;
+}
+
+.quick-card.active-filter {
+  border-color: var(--line);
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-user-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.avatar.mini {
+  overflow: hidden;
+}
+
+.avatar.mini img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bank-card-row {
+  gap: 10px;
+}
+
+.card-edit-button {
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.modal-card {
+  border-radius: 18px;
+}
+
+@media (max-width: 420px) {
+  .app-shell {
+    padding-inline: 14px;
+  }
+
+  .summary-grid {
+    gap: 6px;
+  }
+
+  .summary-card {
+    padding: 10px 8px;
+  }
+
+  .summary-card strong {
+    font-size: 13px;
+  }
+
+  .finance-tools,
+  .admin-add-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ──────────────────────────────────────────────────────────
    Cards view — drum carousel
    ────────────────────────────────────────────────────────── */
@@ -1330,18 +1593,14 @@ select:focus {
 
 .card-wheel {
   position: relative;
-  height: 520px;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scroll-snap-type: y mandatory;
+  height: auto;
+  overflow: visible;
+  scroll-snap-type: none;
   scrollbar-width: none;
-  perspective: 1400px;
-  perspective-origin: 50% 50%;
+  perspective: none;
   -webkit-overflow-scrolling: touch;
-  /* Slight fade only at the very edges so the cards stacked above and below
-     stay visible while still feeling like a deck. */
-  mask-image: linear-gradient(180deg, transparent 0%, #000 7%, #000 93%, transparent 100%);
-  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 7%, #000 93%, transparent 100%);
+  mask-image: none;
+  -webkit-mask-image: none;
 }
 
 .card-wheel::-webkit-scrollbar {
@@ -1349,8 +1608,7 @@ select:focus {
 }
 
 .card-wheel-spacer {
-  height: calc(50% - 60px);
-  flex-shrink: 0;
+  display: none;
 }
 
 .card-wheel-list {
@@ -1358,8 +1616,8 @@ select:focus {
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  transform-style: preserve-3d;
-  padding: 0 18px;
+  transform-style: flat;
+  padding: 10px 18px 96px;
 }
 
 .bank-card {
@@ -1369,16 +1627,15 @@ select:focus {
   padding: 12px 16px;
   border-radius: var(--radius-md);
   color: #f4f5f8;
-  scroll-snap-align: center;
-  scroll-snap-stop: always;
+  scroll-snap-align: none;
   background: var(--card-bg, var(--grad-card-a));
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: var(--shadow-md);
-  transform-style: preserve-3d;
+  transform-style: flat;
   transition: opacity 0.32s var(--ease-out);
-  will-change: transform, opacity;
-  overflow: hidden;
-  cursor: grab;
+  will-change: auto;
+  overflow: visible;
+  cursor: default;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -1747,6 +2004,34 @@ select:focus {
   grid-template-columns: 1fr auto;
 }
 
+.chore-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.chore-panel .section-head.inside {
+  margin-bottom: 2px;
+}
+
+.chore-panel .helper-text {
+  margin: -4px 0 2px;
+}
+
+.chore-panel .admin-add-row {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.chore-panel .stack-list.compact {
+  margin-top: 2px;
+}
+
+.chore-pair-row {
+  margin-top: 8px;
+}
+
 .admin-user-card {
   padding: 14px;
   border: 1px solid var(--line);
@@ -1965,14 +2250,14 @@ body.light .bottom-nav {
   left: 18px;
   right: 18px;
   bottom: 86px;
-  z-index: 11;
+  z-index: 80;
   max-width: 520px;
   margin: 0 auto;
   padding: 12px 16px;
   border-radius: var(--radius-md);
-  background: rgba(15, 18, 26, 0.92);
-  color: var(--text);
-  border: 1px solid var(--line-strong);
+  background: rgba(8, 16, 28, 0.94);
+  color: #f8fbff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   box-shadow: var(--shadow-lg);
   font-size: 13px;
   font-weight: 600;
@@ -1981,6 +2266,11 @@ body.light .bottom-nav {
   transition: transform 0.26s var(--ease-out), opacity 0.26s var(--ease-out);
   pointer-events: none;
   backdrop-filter: blur(14px);
+}
+
+body.light .toast {
+  background: rgba(8, 26, 44, 0.94);
+  color: #f8fbff;
 }
 
 .toast.show {
@@ -2092,4 +2382,629 @@ body.light .bottom-nav {
   .bank-card {
     transition: none;
   }
+}
+
+/* Final compact glass pass */
+* {
+  letter-spacing: 0 !important;
+}
+
+.hero,
+.soft-card,
+.panel,
+.profile-card,
+.list-item,
+.category-row,
+.prayer-row,
+.summary-card,
+.quick-card,
+.finance-short-card,
+.modal-card,
+.bottom-nav {
+  backdrop-filter: blur(22px) saturate(1.25);
+  -webkit-backdrop-filter: blur(22px) saturate(1.25);
+}
+
+.hero {
+  padding: 18px 18px 20px;
+  border-radius: 18px;
+}
+
+.hero.compact {
+  padding-top: 8px;
+  padding-bottom: 9px;
+}
+
+.balance-hero {
+  margin-top: 14px;
+  padding: 12px 14px;
+}
+
+.hero.compact .balance-hero {
+  padding: 4px 8px;
+}
+
+.balance-hero strong {
+  font-size: 26px;
+}
+
+.hero.compact .balance-hero strong {
+  font-size: 18px;
+}
+
+.soft-card,
+.panel {
+  padding: 14px;
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
+    var(--panel);
+}
+
+.quick-card,
+.summary-card {
+  min-height: 74px;
+  padding: 12px;
+  border-radius: 14px;
+}
+
+.quick-card strong,
+.finance-short-card strong {
+  font-size: 18px;
+}
+
+.list-item,
+.pile-stack.prayer-stack > .prayer-row {
+  min-height: 54px;
+  padding: 9px 11px;
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035)),
+    var(--panel);
+}
+
+.list-item.clickable {
+  cursor: pointer;
+}
+
+.item-title,
+.amount {
+  font-size: 13px;
+}
+
+.item-meta {
+  font-size: 11px;
+}
+
+.finance-short-card {
+  width: 100%;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.18), rgba(255, 255, 255, 0.06)),
+    var(--panel);
+  color: var(--text);
+  text-align: left;
+  display: grid;
+  gap: 3px;
+}
+
+.finance-short-card span,
+.finance-short-card small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.next-card {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  color: var(--text);
+  text-align: left;
+}
+
+.next-card strong {
+  margin-top: 8px;
+  font-size: 22px;
+}
+
+.saving-meter strong {
+  font-size: 20px;
+}
+
+.meter-ring {
+  width: 52px;
+  height: 52px;
+}
+
+.ghost-action {
+  flex: 1 1 118px;
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.segment.active,
+.ghost-action.active {
+  background: linear-gradient(135deg, var(--accent-2), var(--info));
+  color: #052033;
+}
+
+.quick-card.active-filter {
+  border-color: var(--line);
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-user-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.avatar.mini {
+  overflow: hidden;
+}
+
+.avatar.mini img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bank-card-row {
+  gap: 10px;
+}
+
+.card-edit-button,
+.card-menu-button {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Scroll header and tighter home/prayer/cards pass */
+.hero {
+  position: relative !important;
+  top: auto !important;
+  z-index: 1;
+  margin-bottom: 12px;
+  transition: opacity 0.24s var(--ease-out), transform 0.24s var(--ease-out), filter 0.24s var(--ease-out);
+}
+
+body[data-active-view="finance"] .hero,
+body[data-active-view="extras"] .hero {
+  display: none !important;
+}
+
+body.mini-header-visible[data-active-view="home"] .hero {
+  opacity: 0;
+  transform: translateY(-18px) scale(0.985);
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.mini-header {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  left: 50%;
+  z-index: 30;
+  width: min(420px, calc(100% - 28px));
+  min-height: 54px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06)),
+    var(--panel);
+  box-shadow: var(--shadow-md);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -18px) scale(0.98);
+  transition: opacity 0.22s var(--ease-out), transform 0.22s var(--ease-out);
+  backdrop-filter: blur(24px) saturate(1.35);
+  -webkit-backdrop-filter: blur(24px) saturate(1.35);
+}
+
+body.mini-header-visible .mini-header {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0) scale(1);
+}
+
+body[data-active-view="profile"] .mini-header,
+body[data-active-view="admin"] .mini-header {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translate(-50%, -18px) scale(0.98) !important;
+}
+
+body.mini-header-visible::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(env(safe-area-inset-top, 0px) + 78px);
+  z-index: 29;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(7, 17, 31, 0.98), rgba(7, 17, 31, 0.88) 70%, rgba(7, 17, 31, 0));
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+}
+
+body.mini-header-visible[data-active-view="profile"]::before,
+body.mini-header-visible[data-active-view="admin"]::before {
+  display: none;
+}
+
+body.light.mini-header-visible::before {
+  background:
+    linear-gradient(180deg, rgba(238, 250, 255, 0.98), rgba(238, 250, 255, 0.90) 72%, rgba(238, 250, 255, 0));
+}
+
+body.mini-header-visible .auth-notice:not([hidden]) {
+  margin-top: calc(env(safe-area-inset-top, 0px) + 74px);
+}
+
+body[data-active-view="finance"] #view-finance,
+body[data-active-view="extras"] #view-extras {
+  padding-top: calc(env(safe-area-inset-top, 0px) + 66px);
+}
+
+body.mini-header-visible:has(.auth-notice:not([hidden])) #view-finance,
+body.mini-header-visible:has(.auth-notice:not([hidden])) #view-extras,
+body.mini-header-visible:has(.auth-notice:not([hidden])) #view-admin {
+  padding-top: 12px;
+}
+
+.mini-avatar {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  flex: 0 0 36px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, var(--accent-2), var(--info));
+  color: #052033;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  font-weight: 900;
+}
+
+.mini-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  display: block;
+}
+
+.mini-header-text {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+  text-align: left;
+}
+
+.mini-header-text strong,
+.mini-header-text span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini-header-text strong {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.mini-header-text span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#view-home .section-head:first-child {
+  margin-top: 12px;
+}
+
+#view-home .quick-card {
+  min-height: 64px;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 10px 12px;
+}
+
+#view-home .quick-card .quick-card-icon {
+  grid-row: 1 / span 3;
+  margin: 0;
+}
+
+#view-home .quick-card span,
+#view-home .quick-card small {
+  font-size: 10px;
+}
+
+#view-home .quick-card strong {
+  font-size: 16px;
+  line-height: 1.05;
+}
+
+#view-home .next-card {
+  padding: 12px 14px;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 3px 10px;
+}
+
+#view-home .next-card .card-title {
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+#view-home .next-card .card-title span {
+  display: none;
+}
+
+#view-home .next-card strong {
+  margin: 0;
+  font-size: 19px;
+}
+
+#view-home .next-card p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.finance-short-card {
+  min-height: 58px;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 10px;
+}
+
+.finance-short-card strong {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  font-size: 17px;
+  text-align: right;
+}
+
+.cards-header {
+  padding: 8px 2px 12px;
+}
+
+.cards-header h2 {
+  font-size: 21px;
+}
+
+.card-wheel {
+  height: auto;
+  overflow: visible;
+  scroll-snap-type: none;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+.bank-card {
+  height: 108px;
+}
+
+.bank-card-row {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.card-edit-button,
+.card-menu-button {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  z-index: 12;
+  width: 30px;
+  height: 30px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.10);
+  pointer-events: auto;
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+.bank-card-balance {
+  padding-right: 40px;
+}
+
+.card-action-menu {
+  position: absolute;
+  top: 34px;
+  right: -4px;
+  z-index: 20;
+  min-width: 122px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  background: rgba(12, 18, 30, 0.88);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  animation: cardMenuIn 0.16s var(--ease-out);
+}
+
+.card-action-danger {
+  width: 100%;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 85, 118, 0.14);
+  color: #ffb2c2;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.card-action-danger svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* TBC-inspired polish: compact banking surfaces, cleaner light mode, and
+   stable card interactions without the old 3D scroll snap layer. */
+.soft-card,
+.panel,
+.profile-card,
+.list-item,
+.category-row,
+.balance-card,
+.prayer-time,
+.transaction-row,
+.admin-user-card,
+.quick-card,
+.finance-short-card,
+.summary-card {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.018)),
+    var(--panel);
+  border-color: var(--line);
+  border-radius: 20px;
+}
+
+body.light .soft-card,
+body.light .panel,
+body.light .profile-card,
+body.light .list-item,
+body.light .category-row,
+body.light .balance-card,
+body.light .prayer-time,
+body.light .transaction-row,
+body.light .admin-user-card,
+body.light .quick-card,
+body.light .finance-short-card,
+body.light .summary-card {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(238, 249, 255, 0.78)),
+    var(--panel);
+}
+
+.primary-button,
+.segment.active,
+.nav-item.active,
+.quick-card.active-filter {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #042033;
+}
+
+.card-wheel {
+  height: auto !important;
+  overflow: visible !important;
+  scroll-snap-type: none !important;
+  perspective: none !important;
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+}
+
+.card-wheel-list {
+  transform-style: flat !important;
+  gap: 14px;
+  padding: 8px 18px 104px;
+}
+
+.card-wheel-spacer {
+  display: none !important;
+}
+
+.bank-card {
+  overflow: visible !important;
+  transform: none !important;
+  filter: none !important;
+  opacity: 1 !important;
+  cursor: default;
+}
+
+.card-menu-button {
+  z-index: 30 !important;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.card-action-menu {
+  z-index: 40 !important;
+}
+
+@keyframes cardMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.prayer-control-panel,
+.prayer-times-panel {
+  margin-top: 10px;
+}
+
+.prayer-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.prayer-actions .primary-button {
+  width: 100%;
+  min-height: 38px;
+}
+
+.lead-time-row {
+  margin: 10px 0 0;
+}
+
+.pile-stack.prayer-stack {
+  gap: 8px;
+}
+
+.pile-stack.prayer-stack > .prayer-row {
+  position: relative;
+  top: auto !important;
+  z-index: auto !important;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 56px;
+}
+
+.prayer-row-time {
+  font-size: 16px;
+}
+
+.toggle-mini {
+  grid-column: 2 / -1;
+  justify-self: stretch;
+  min-height: 28px;
+}
+
+.ghost-action.wide {
+  flex-basis: 100%;
+  width: 100%;
+}
+
+.finance-archived {
+  display: none !important;
 }

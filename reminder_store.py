@@ -104,6 +104,31 @@ async def delete_reminder(user_id: int, reminder_id: int) -> bool:
         return cursor.rowcount > 0
 
 
+async def update_reminder(
+    user_id: int,
+    reminder_id: int,
+    due_at: datetime,
+    text: str,
+    repeat_rule: str = "",
+) -> bool:
+    if repeat_rule not in VALID_REPEAT_RULES:
+        repeat_rule = ""
+    clean_text = text.strip()[:500]
+    if not clean_text:
+        return False
+    async with connect_db() as db:
+        cursor = await db.execute(
+            """
+            UPDATE reminders
+            SET due_at = ?, message = ?, repeat_rule = ?
+            WHERE user_id = ? AND id = ? AND status = 'pending'
+            """,
+            (utc_text(due_at), clean_text, repeat_rule, user_id, reminder_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
 async def due_reminders() -> list[tuple[int, int, str]]:
     async with connect_db() as db:
         rows = await db.execute_fetchall(

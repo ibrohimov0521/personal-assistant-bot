@@ -13,12 +13,25 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./theme.css?v=29" />
-    <link rel="stylesheet" href="./styles.css?v=29" />
+    <link rel="stylesheet" href="./theme.css?v=46" />
+    <link rel="stylesheet" href="./styles.css?v=46" />
   </head>
   <body>
     <div class="bg-photo" aria-hidden="true"></div>
     <main class="app-shell">
+      <header class="mini-header" id="miniHeader">
+        <button class="mini-avatar" id="miniAvatarButton" type="button" aria-label="Profil">
+          <span id="miniAvatarLetter">F</span>
+        </button>
+        <div class="mini-header-text">
+          <strong id="miniTitle">Assistant</strong>
+          <span id="miniSubtitle">Yangilanmoqda</span>
+        </div>
+        <button class="icon-button small" id="miniRefreshButton" type="button" aria-label="Yangilash">
+          <i data-lucide="refresh-cw"></i>
+        </button>
+      </header>
+
       <header class="hero">
         <div class="hero-aurora"></div>
         <div class="hero-top">
@@ -33,9 +46,9 @@
         <div class="hero-text">
           <p class="eyebrow">Assistant</p>
           <h1>Bugungi nazorat</h1>
-          <p class="subtitle">Moliya, eslatma va namoz bir joyda.</p>
+          <p class="subtitle">Eslatma, namoz va guruh navbatchiligi bir joyda.</p>
         </div>
-        <button class="balance-hero" id="heroBalanceCard" type="button" aria-label="Kartalarni ochish">
+        <button class="balance-hero finance-archived" id="heroBalanceCard" type="button" aria-label="Kartalar arxivlangan" hidden>
           <div class="balance-hero-top">
             <span>Jami balans</span>
             <span class="balance-hero-cta">
@@ -62,7 +75,7 @@
           <span id="generatedAt">...</span>
         </section>
 
-        <div class="quick-grid">
+        <div class="quick-grid finance-archived" hidden>
           <button class="quick-card income" data-open-view="finance" data-transaction-filter="income" type="button">
             <div class="quick-card-icon"><i data-lucide="arrow-down-left"></i></div>
             <span>Kirim</span>
@@ -77,35 +90,41 @@
           </button>
         </div>
 
-        <section class="soft-card next-card">
+        <button class="soft-card next-card" id="nextPrayerCard" type="button">
           <div class="card-title">
             <i data-lucide="sun"></i>
             <span>Keyingi namoz</span>
           </div>
           <strong id="nextPrayerName">...</strong>
           <p id="nextPrayerMeta">...</p>
-        </section>
+        </button>
 
-        <section class="section-head">
+        <section class="section-head" data-open-view="extras" data-scroll-target="activeRemindersSection">
           <h2>Yaqin eslatmalar</h2>
-          <button class="link-button" data-open-view="extras" type="button">
+          <button class="link-button" data-open-view="extras" data-scroll-target="activeRemindersSection" type="button">
             <span id="reminderCount">0 ta</span>
             <i data-lucide="chevron-right"></i>
           </button>
         </section>
-        <div id="reminderList" class="pile-stack"></div>
+        <div id="reminderList" class="pile-stack" data-open-view="extras" data-scroll-target="activeRemindersSection"></div>
 
-        <section class="section-head">
+        <section class="section-head finance-archived" hidden>
           <h2>Oxirgi operatsiyalar</h2>
           <button class="link-button" data-open-view="finance" data-transaction-filter="all" type="button">
             <span>Barchasi</span>
             <i data-lucide="chevron-right"></i>
           </button>
         </section>
-        <div id="recentTransactions" class="stack-list"></div>
+        <div id="recentTransactions" class="stack-list finance-archived" hidden></div>
       </section>
 
-      <section class="view" id="view-finance" data-view="finance">
+      <section class="view finance-archived" id="view-finance" data-view="finance" hidden>
+        <button class="finance-short-card" id="financeBalanceShortcut" type="button">
+          <span>Jami mablag'</span>
+          <strong id="financeShortBalance">...</strong>
+          <small id="financeShortMeta">Kartalar va oxirgi yangilanish</small>
+        </button>
+
         <section class="panel report-panel">
           <div class="section-head inside">
             <h2>Moliya</h2>
@@ -159,8 +178,8 @@
               <span>Kunlik hisobot</span>
             </button>
             <button class="ghost-action" id="exportCsvButton" type="button">
-              <i data-lucide="download"></i>
-              <span>CSV export</span>
+              <i data-lucide="file-spreadsheet"></i>
+              <span>Excel yuborish</span>
             </button>
           </div>
 
@@ -230,22 +249,13 @@
         </section>
 
         <section class="section-head">
-          <h2>Kartalar</h2>
-          <button class="link-button" data-open-view="cards" type="button">
-            <span id="cardUpdatedLabel">...</span>
-            <i data-lucide="chevron-right"></i>
-          </button>
-        </section>
-        <div id="balanceList" class="card-grid"></div>
-
-        <section class="section-head">
           <h2>Moliyaviy signal</h2>
           <span>Avto tahlil</span>
         </section>
         <div id="financeSignals" class="stack-list"></div>
       </section>
 
-      <section class="view" id="view-cards" data-view="cards">
+      <section class="view finance-archived" id="view-cards" data-view="cards" hidden>
         <section class="cards-header">
           <button class="icon-button ghost" id="cardsBackButton" type="button" aria-label="Orqaga">
             <i data-lucide="chevron-left"></i>
@@ -267,7 +277,7 @@
       </section>
 
       <section class="view" id="view-extras" data-view="extras">
-        <section class="panel">
+        <section class="panel prayer-control-panel">
           <div class="section-head inside">
             <h2>Namoz nazorati</h2>
             <span id="prayerCityLabel">...</span>
@@ -292,12 +302,22 @@
               <button class="segment" data-lead-minutes="15" type="button">15</button>
             </div>
           </div>
+        </section>
+
+        <section class="panel prayer-times-panel">
+          <div class="section-head inside">
+            <h2>Namoz vaqtlari</h2>
+            <span>Bugun</span>
+          </div>
           <div id="prayerTimes" class="pile-stack prayer-stack"></div>
         </section>
 
-        <section class="section-head">
+        <section class="section-head" id="activeRemindersSection">
           <h2>Aktiv eslatmalar</h2>
-          <span id="activeReminderCount">0 ta</span>
+          <button class="link-button" id="activeToggleButton" type="button">
+            <span id="activeReminderCount">0 ta</span>
+            <i data-lucide="chevron-down"></i>
+          </button>
         </section>
         <div id="activeReminderList" class="pile-stack"></div>
 
@@ -361,7 +381,7 @@
             <span>Xavfsiz tozalash</span>
           </div>
           <div class="action-row wrap">
-            <button class="ghost-action danger" data-clear-scope="finance" type="button">
+            <button class="ghost-action danger finance-archived" data-clear-scope="finance" type="button" hidden>
               <i data-lucide="wallet-x"></i>
               <span>Moliya</span>
             </button>
@@ -394,6 +414,40 @@
             </button>
           </div>
           <p class="helper-text">User botga /id yuborib ID sini oladi. Bloklangan user bot va Mini App'dan foydalana olmaydi.</p>
+        </section>
+
+        <section class="panel chore-panel">
+          <div class="section-head inside">
+            <h2>Guruh navbatchiligi</h2>
+            <span id="choreSummary">...</span>
+          </div>
+          <p class="helper-text" id="choreScheduleText">...</p>
+          <div class="admin-add-row">
+            <label class="limit-field">
+              <span>Navbatchi username</span>
+              <input id="choreMemberInput" maxlength="60" placeholder="Masalan: @zafar_aka" />
+            </label>
+            <button class="primary-button" id="choreMemberAddButton" type="button">
+              <i data-lucide="user-plus"></i>
+              <span>Qo'shish</span>
+            </button>
+          </div>
+          <div id="choreMemberList" class="stack-list compact"></div>
+          <div class="admin-add-row chore-pair-row">
+            <label class="limit-field">
+              <span>1-username</span>
+              <input id="chorePairFirstInput" maxlength="60" placeholder="@laziz_aka" />
+            </label>
+            <label class="limit-field">
+              <span>2-username</span>
+              <input id="chorePairSecondInput" maxlength="60" placeholder="@nuriddin_aka" />
+            </label>
+            <button class="primary-button" id="chorePairAddButton" type="button">
+              <i data-lucide="users-round"></i>
+              <span>Juftlik</span>
+            </button>
+          </div>
+          <div id="chorePairList" class="stack-list compact"></div>
         </section>
 
         <section class="section-head">
@@ -441,6 +495,75 @@
             <span>Karta oxirgi 4 raqami</span>
             <input id="transactionCardInput" inputmode="numeric" maxlength="4" placeholder="3936" />
           </label>
+          <label class="form-field">
+            <span>Sana va vaqt</span>
+            <input id="transactionDateInput" type="datetime-local" required />
+          </label>
+          <button class="primary-button wide" type="submit">
+            <i data-lucide="save"></i>
+            <span>Saqlash</span>
+          </button>
+          <button class="ghost-action danger wide" id="deleteCardButton" type="button">
+            <i data-lucide="trash-2"></i>
+            <span>Kartani olib tashlash</span>
+          </button>
+        </form>
+      </div>
+
+      <div class="modal-backdrop" id="reminderModal" hidden>
+        <form class="modal-card" id="reminderForm">
+          <div class="section-head inside">
+            <h2>Eslatmani tahrirlash</h2>
+            <button class="icon-button small" id="closeReminderModal" type="button" aria-label="Yopish">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <input id="reminderIdInput" type="hidden" />
+          <label class="form-field">
+            <span>Matn</span>
+            <input id="reminderTextInput" maxlength="500" required />
+          </label>
+          <label class="form-field">
+            <span>Sana va vaqt</span>
+            <input id="reminderDateInput" type="datetime-local" required />
+          </label>
+          <label class="form-field">
+            <span>Takrorlash</span>
+            <select id="reminderRepeatInput">
+              <option value="">Yo'q</option>
+              <option value="daily">Har kuni</option>
+              <option value="weekly">Har hafta</option>
+              <option value="monthly">Har oy</option>
+            </select>
+          </label>
+          <button class="primary-button wide" type="submit">
+            <i data-lucide="save"></i>
+            <span>Saqlash</span>
+          </button>
+        </form>
+      </div>
+
+      <div class="modal-backdrop" id="cardModal" hidden>
+        <form class="modal-card" id="cardForm">
+          <div class="section-head inside">
+            <h2>Kartani tahrirlash</h2>
+            <button class="icon-button small" id="closeCardModal" type="button" aria-label="Yopish">
+              <i data-lucide="x"></i>
+            </button>
+          </div>
+          <input id="cardLast4Input" type="hidden" />
+          <label class="form-field">
+            <span>Bank</span>
+            <input id="cardBankInput" maxlength="80" />
+          </label>
+          <label class="form-field">
+            <span>Egasining nomi</span>
+            <input id="cardOwnerInput" maxlength="120" />
+          </label>
+          <label class="form-field">
+            <span>Balans</span>
+            <input id="cardAmountInput" inputmode="numeric" />
+          </label>
           <button class="primary-button wide" type="submit">
             <i data-lucide="save"></i>
             <span>Saqlash</span>
@@ -453,7 +576,7 @@
           <i data-lucide="home"></i>
           <span>Asosiy</span>
         </button>
-        <button class="nav-item" data-view-target="finance" type="button">
+        <button class="nav-item finance-archived" data-view-target="finance" type="button" hidden>
           <i data-lucide="pie-chart"></i>
           <span>Moliya</span>
         </button>
@@ -473,7 +596,7 @@
 
       <div class="toast" id="toast" role="status"></div>
     </main>
-    <script src="./demo-data.js?v=29"></script>
-    <script src="./app.js?v=29"></script>
+    <script src="./demo-data.js?v=46"></script>
+    <script src="./app.js?v=46"></script>
   </body>
 </html>
