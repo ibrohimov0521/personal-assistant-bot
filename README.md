@@ -3,7 +3,7 @@
 Telegram bot: eslatmalar, namoz vaqtlari, Mini App va guruh navbatchiligi.
 
 ## Hozirgi imkoniyatlar
-
+.
 - Eslatma qo'shadi va vaqti kelganda Telegramga xabar yuboradi.
 - Oddiy matndan eslatma vaqtini tanib oladi.
 - Shahar bo'yicha namoz vaqtlarini ko'rsatadi va yoqsangiz eslatib turadi.
