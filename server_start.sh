@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="/opt/assistant-bot"
+APP_DIR="$(pwd)"
 cd "$APP_DIR"
 
 CLOUDFLARED="${CLOUDFLARED:-/usr/local/bin/cloudflared}"
